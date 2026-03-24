@@ -9,9 +9,8 @@ from pathlib import Path
 
 import modal
 import requests
+from build_config import resolve_builder_image
 
-
-BUILDER_IMAGE = os.environ.get("ONLYOFFICE_BUILDER_IMAGE")
 APP_NAME = "onlyoffice-fork-build"
 GITHUB_API = "https://api.github.com"
 REQUIRED_AUX_REPOS = {
@@ -23,9 +22,7 @@ REQUIRED_AUX_REPOS = {
 
 
 def _image():
-    if not BUILDER_IMAGE:
-        raise RuntimeError("ONLYOFFICE_BUILDER_IMAGE must be set")
-
+    builder_image = resolve_builder_image(os.environ)
     registry_username = os.environ.get("BUILDER_REGISTRY_USERNAME")
     registry_password = os.environ.get("BUILDER_REGISTRY_PASSWORD")
     registry_secret = None
@@ -36,7 +33,7 @@ def _image():
         })
 
     return modal.Image.from_registry(
-        BUILDER_IMAGE,
+        builder_image,
         add_python="3.11",
         secret=registry_secret,
     ).pip_install("requests")
@@ -120,6 +117,7 @@ def prepare_workspace(work_root, repo_url, source_ref):
 
 @app.function(image=_image(), secrets=_secrets(), timeout=60 * 60 * 4, cpu=8, memory=32768)
 def build_artifact(repo_url, source_ref, release_tag, github_repository):
+    builder_image = resolve_builder_image(os.environ)
     github_token = os.environ["GITHUB_TOKEN"]
     with tempfile.TemporaryDirectory(prefix="onlyoffice-fork-build-") as tmpdir:
         work_root = Path(tmpdir)
@@ -168,7 +166,7 @@ def build_artifact(repo_url, source_ref, release_tag, github_repository):
                 "--source-ref",
                 source_ref,
                 "--builder-image",
-                BUILDER_IMAGE,
+                builder_image,
                 "--documentserver-sha",
                 capture(["git", "rev-parse", "HEAD"], cwd=source_root),
                 "--sdkjs-sha",

@@ -34,6 +34,10 @@ jobs:
       - name: Install build trigger dependencies
         run: python3 -m pip install --upgrade modal requests
 
+      - name: Write builder image selection
+        run: |
+          printf '%s\n' "${{ inputs.builder_image }}" > modal/.builder-image
+
       - name: Trigger Modal artifact build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
