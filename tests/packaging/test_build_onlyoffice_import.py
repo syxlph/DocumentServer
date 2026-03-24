@@ -1,5 +1,7 @@
 import importlib.util
+import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -127,6 +129,27 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
 
         self.assertEqual(FakeVolumeModule.calls[0]["name"], module.CACHE_VOLUME_NAME)
         self.assertTrue(FakeVolumeModule.calls[0]["create_if_missing"])
+
+    def test_ensure_mirror_removes_partial_clone_on_failure(self):
+        module = self._import_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_root = Path(tmpdir)
+
+            def fake_run(command, cwd=None, env=None):
+                target = Path(command[-1])
+                target.mkdir(parents=True, exist_ok=True)
+                raise subprocess.CalledProcessError(128, command)
+
+            original_run = module.run
+            module.run = fake_run
+            try:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    module.ensure_mirror(cache_root, "web-apps", "https://github.com/example/web-apps.git")
+            finally:
+                module.run = original_run
+
+            self.assertFalse((cache_root / "mirrors" / "web-apps.git").exists())
 
 
 if __name__ == "__main__":
