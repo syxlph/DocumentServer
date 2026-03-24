@@ -10,25 +10,12 @@ from pathlib import Path
 import modal
 import requests
 
-try:
+PLACEHOLDER_REMOTE_IMAGE = "docker.io/library/debian:bookworm-slim"
+
+if modal.is_local():
     from build_config import resolve_builder_image
-except ModuleNotFoundError:
-    # Modal imports the entrypoint file in isolation inside the remote container,
-    # so sibling helper modules are not guaranteed to be present there.
-    def resolve_builder_image(environ, config_path=None):
-        if config_path is None:
-            config_path = Path(__file__).with_name(".builder-image")
-
-        builder_image = environ.get("ONLYOFFICE_BUILDER_IMAGE", "").strip()
-        if builder_image:
-            return builder_image
-
-        if config_path.is_file():
-            builder_image = config_path.read_text(encoding="utf-8").strip()
-            if builder_image:
-                return builder_image
-
-        raise RuntimeError("ONLYOFFICE_BUILDER_IMAGE must be set")
+else:
+    resolve_builder_image = None
 
 APP_NAME = "onlyoffice-fork-build"
 GITHUB_API = "https://api.github.com"
@@ -40,8 +27,15 @@ REQUIRED_AUX_REPOS = {
 }
 
 
+def _local_builder_image():
+    if not modal.is_local():
+        return None
+
+    return resolve_builder_image(os.environ)
+
+
 def _image():
-    builder_image = resolve_builder_image(os.environ)
+    builder_image = _local_builder_image()
     registry_username = os.environ.get("BUILDER_REGISTRY_USERNAME")
     registry_password = os.environ.get("BUILDER_REGISTRY_PASSWORD")
     registry_secret = None
@@ -50,6 +44,12 @@ def _image():
             "REGISTRY_USERNAME": registry_username,
             "REGISTRY_PASSWORD": registry_password,
         })
+
+    if not builder_image:
+        # The remote worker imports this module again inside the already-selected
+        # container image, so import-time image resolution must not depend on
+        # local files or runner-only environment variables there.
+        return modal.Image.from_registry(PLACEHOLDER_REMOTE_IMAGE, add_python="3.11")
 
     return modal.Image.from_registry(
         builder_image,
@@ -135,8 +135,7 @@ def prepare_workspace(work_root, repo_url, source_ref):
 
 
 @app.function(image=_image(), secrets=_secrets(), timeout=60 * 60 * 4, cpu=8, memory=32768)
-def build_artifact(repo_url, source_ref, release_tag, github_repository):
-    builder_image = resolve_builder_image(os.environ)
+def build_artifact(repo_url, source_ref, release_tag, github_repository, builder_image):
     github_token = os.environ["GITHUB_TOKEN"]
     with tempfile.TemporaryDirectory(prefix="onlyoffice-fork-build-") as tmpdir:
         work_root = Path(tmpdir)
@@ -221,11 +220,15 @@ def build_artifact(repo_url, source_ref, release_tag, github_repository):
 
 @app.local_entrypoint()
 def main(source_ref: str, release_tag: str, github_repository: str, repo_url: str = ""):
+    builder_image = _local_builder_image()
+    if not builder_image:
+        raise RuntimeError("ONLYOFFICE_BUILDER_IMAGE must be set for local Modal invocation")
+
     if not repo_url:
         github_token = os.environ.get("GITHUB_TOKEN")
         if github_token:
             repo_url = f"https://x-access-token:{github_token}@github.com/{github_repository}.git"
         else:
             repo_url = f"https://github.com/{github_repository}.git"
-    result = build_artifact.remote(repo_url, source_ref, release_tag, github_repository)
+    result = build_artifact.remote(repo_url, source_ref, release_tag, github_repository, builder_image)
     print(json.dumps(result, indent=2))
