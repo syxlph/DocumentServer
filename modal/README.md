@@ -18,6 +18,7 @@ export ONLYOFFICE_BUILDER_IMAGE=ghcr.io/<owner>/onlyoffice-builder:<tag>
 export GITHUB_TOKEN=<github token with contents:write>
 export BUILDER_REGISTRY_USERNAME=<ghcr username>
 export BUILDER_REGISTRY_PASSWORD=<ghcr token if the builder image is private>
+printf '%s\n' "$ONLYOFFICE_BUILDER_IMAGE" > modal/.builder-image
 modal run modal/build_onlyoffice.py \
   --source-ref agent-plugin \
   --release-tag v0.1.0-agent.1 \
@@ -27,6 +28,7 @@ modal run modal/build_onlyoffice.py \
 The script:
 
 1. launches a Modal function inside the pinned builder image
+   The builder image can come from `ONLYOFFICE_BUILDER_IMAGE` or `modal/.builder-image`.
 2. clones `DocumentServer` at the requested ref and initializes submodules
 3. clones the auxiliary upstream repos required by `build_tools`
 4. runs the source build with `build_tools`
