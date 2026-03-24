@@ -11,6 +11,10 @@ import modal
 import requests
 
 PLACEHOLDER_REMOTE_IMAGE = "docker.io/library/debian:bookworm-slim"
+CACHE_VOLUME_NAME = "onlyoffice-fork-build-cache"
+CACHE_MOUNT_PATH = Path("/cache")
+CACHE_ROOT = CACHE_MOUNT_PATH / "onlyoffice-fork"
+MIRROR_ROOT = CACHE_ROOT / "mirrors"
 
 if modal.is_local():
     from build_config import resolve_builder_image
@@ -26,6 +30,7 @@ REQUIRED_AUX_REPOS = {
     "document-server-integration": "https://github.com/ONLYOFFICE/document-server-integration.git",
 }
 REQUIRED_SUBMODULE_PATHS = ["core", "core-fonts", "dictionaries", "sdkjs", "server", "web-apps"]
+BUILD_CACHE_VOLUME = modal.Volume.from_name(CACHE_VOLUME_NAME, create_if_missing=True)
 
 
 def _local_builder_image():
@@ -109,6 +114,26 @@ def upload_asset(session, upload_url, asset_path):
         response.raise_for_status()
 
 
+def ensure_mirror(cache_root, cache_name, clone_url):
+    mirror_root = cache_root / "mirrors"
+    mirror_root.mkdir(parents=True, exist_ok=True)
+    mirror_path = mirror_root / f"{cache_name}.git"
+
+    if mirror_path.exists():
+        run(["git", "remote", "set-url", "origin", clone_url], cwd=mirror_path)
+        run(["git", "fetch", "--prune", "--tags", "origin"], cwd=mirror_path)
+    else:
+        run(["git", "clone", "--mirror", clone_url, str(mirror_path)])
+
+    return mirror_path
+
+
+def clone_from_mirror(mirror_path, target_path):
+    if target_path.exists():
+        shutil.rmtree(target_path)
+    run(["git", "clone", str(mirror_path), str(target_path)])
+
+
 def required_submodule_urls(github_repository):
     owner = github_repository.split("/", 1)[0]
     return {
@@ -123,15 +148,31 @@ def required_submodule_urls(github_repository):
 
 def prepare_workspace(work_root, repo_url, source_ref, github_repository):
     work_root.mkdir(parents=True, exist_ok=True)
+    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     source_root = work_root / "source"
-    run(["git", "clone", repo_url, str(source_root)])
+    documentserver_mirror = ensure_mirror(CACHE_ROOT, "documentserver", repo_url)
+    submodule_urls = required_submodule_urls(github_repository)
+    for path, url in submodule_urls.items():
+        ensure_mirror(CACHE_ROOT, path, url)
+    for name, clone_url in REQUIRED_AUX_REPOS.items():
+        ensure_mirror(CACHE_ROOT, name, clone_url)
+
+    BUILD_CACHE_VOLUME.commit()
+
+    clone_from_mirror(documentserver_mirror, source_root)
+    run(["git", "remote", "set-url", "origin", repo_url], cwd=source_root)
+    run(["git", "fetch", "--prune", "origin"], cwd=source_root)
     run(["git", "checkout", source_ref], cwd=source_root)
 
-    for path, url in required_submodule_urls(github_repository).items():
-        run(["git", "submodule", "set-url", path, url], cwd=source_root)
+    for path in REQUIRED_SUBMODULE_PATHS:
+        mirror_uri = (MIRROR_ROOT / f"{path}.git").resolve().as_uri()
+        run(["git", "submodule", "set-url", path, mirror_uri], cwd=source_root)
 
     run(["git", "submodule", "sync", "--"] + REQUIRED_SUBMODULE_PATHS, cwd=source_root)
-    run(["git", "submodule", "update", "--init", "--"] + REQUIRED_SUBMODULE_PATHS, cwd=source_root)
+    run(
+        ["git", "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--"] + REQUIRED_SUBMODULE_PATHS,
+        cwd=source_root,
+    )
 
     build_root = Path("/build_tools")
     for name in ["server", "sdkjs", "web-apps", "core", "core-fonts", "dictionaries", "sdkjs-plugins"]:
@@ -145,15 +186,14 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
 
     for name, clone_url in REQUIRED_AUX_REPOS.items():
         target = build_root / name
-        if target.exists():
-            shutil.rmtree(target)
-        run(["git", "clone", "--depth", "1", clone_url, str(target)])
+        clone_from_mirror(MIRROR_ROOT / f"{name}.git", target)
 
     return source_root
 
 
-@app.function(image=_image(), secrets=_secrets(), timeout=60 * 60 * 4)
+@app.function(image=_image(), secrets=_secrets(), timeout=60 * 60 * 4, volumes={str(CACHE_MOUNT_PATH): BUILD_CACHE_VOLUME})
 def build_artifact(repo_url, source_ref, release_tag, github_repository, builder_image):
+    BUILD_CACHE_VOLUME.reload()
     github_token = os.environ["GITHUB_TOKEN"]
     with tempfile.TemporaryDirectory(prefix="onlyoffice-fork-build-") as tmpdir:
         work_root = Path(tmpdir)
