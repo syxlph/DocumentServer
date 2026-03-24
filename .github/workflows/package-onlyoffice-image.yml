@@ -1,0 +1,67 @@
+name: Package ONLYOFFICE Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag containing the verified runtime artifact bundle
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  package-onlyoffice-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          gh release download "${{ inputs.release_tag }}" --repo "${{ github.repository }}" --pattern "*.tar.gz" --dir dist
+          gh release download "${{ inputs.release_tag }}" --repo "${{ github.repository }}" --pattern "*.manifest.json" --dir dist
+          gh release download "${{ inputs.release_tag }}" --repo "${{ github.repository }}" --pattern "*.sha256" --dir dist
+
+      - name: Verify artifact bundle
+        id: verify
+        run: |
+          python3 packaging/verify_release_assets.py \
+            --asset-dir dist \
+            --expected-release-tag "${{ inputs.release_tag }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Extract runtime bundle
+        run: |
+          mkdir -p image-context
+          tar -xzf "${{ steps.verify.outputs.tarball }}" -C image-context
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: image-context
+          file: ./docker/fork-image/Dockerfile
+          push: true
+          build-args: |
+            RELEASE_TAG=${{ inputs.release_tag }}
+            IMMUTABLE_TAG=${{ steps.verify.outputs.immutable_image_tag }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/onlyoffice-fork:${{ inputs.release_tag }}
+            ghcr.io/${{ github.repository_owner }}/onlyoffice-fork:${{ steps.verify.outputs.immutable_image_tag }}

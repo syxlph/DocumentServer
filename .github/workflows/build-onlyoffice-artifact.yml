@@ -1,0 +1,55 @@
+name: Build ONLYOFFICE Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: DocumentServer source ref to build
+        required: true
+        type: string
+      release_tag:
+        description: Release tag that will own the artifact assets
+        required: true
+        type: string
+      builder_image:
+        description: Fully qualified builder image reference
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-onlyoffice-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build trigger dependencies
+        run: python3 -m pip install --upgrade modal requests
+
+      - name: Trigger Modal artifact build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          ONLYOFFICE_BUILDER_IMAGE: ${{ inputs.builder_image }}
+          BUILDER_REGISTRY_USERNAME: ${{ github.actor }}
+          BUILDER_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          modal run modal/build_onlyoffice.py \
+            --source-ref "${{ inputs.source_ref }}" \
+            --release-tag "${{ inputs.release_tag }}" \
+            --github-repository "${{ github.repository }}"
+
+      - name: Validate release assets exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ inputs.release_tag }}" --repo "${{ github.repository }}" --json assets
