@@ -137,6 +137,74 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
         self.assertEqual(module.workspace_repo_target(Path("/build_tools"), "sdkjs"), Path("/sdkjs"))
         self.assertEqual(module.workspace_repo_target(Path("/build_tools"), "onlyoffice.github.io"), Path("/onlyoffice.github.io"))
 
+    def test_boost_cache_source_path_uses_volume_root(self):
+        module = self._import_module()
+
+        cache_path = module.boost_cache_source_path(Path("/cache/onlyoffice-fork"))
+
+        self.assertEqual(cache_path, Path("/cache/onlyoffice-fork/third_party/boost_1_72_0"))
+
+    def test_ensure_cached_boost_source_clones_when_missing(self):
+        module = self._import_module()
+        calls = []
+
+        def fake_run(command, cwd=None, env=None):
+            calls.append((command, cwd))
+            if command[:2] == ["git", "clone"]:
+                Path(command[4]).mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_root = Path(tmpdir)
+            cache_path = module.ensure_cached_boost_source(cache_root, run_command=fake_run)
+
+        self.assertEqual(cache_path.name, "boost_1_72_0")
+        self.assertEqual(
+            calls[0][0],
+            [
+                "git",
+                "clone",
+                "--recursive",
+                "--depth=1",
+                "https://github.com/boostorg/boost.git",
+                str(cache_path),
+                "-b",
+                "boost-1.72.0",
+            ],
+        )
+
+    def test_ensure_cached_boost_source_removes_partial_clone_on_failure(self):
+        module = self._import_module()
+
+        def fake_run(command, cwd=None, env=None):
+            target = Path(command[5])
+            target.mkdir(parents=True, exist_ok=True)
+            raise subprocess.CalledProcessError(128, command)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_root = Path(tmpdir)
+            with self.assertRaises(subprocess.CalledProcessError):
+                module.ensure_cached_boost_source(cache_root, run_command=fake_run)
+
+            self.assertFalse(module.boost_cache_source_path(cache_root).exists())
+
+    def test_populate_boost_source_copies_cached_tree_into_workspace(self):
+        module = self._import_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cached_boost = module.boost_cache_source_path(root)
+            (cached_boost / "libs" / "filesystem").mkdir(parents=True, exist_ok=True)
+            (cached_boost / "boost.cpp").write_text("boost", encoding="utf-8")
+
+            source_root = root / "source"
+            (source_root / "core" / "Common" / "3dParty" / "boost").mkdir(parents=True, exist_ok=True)
+
+            target = module.populate_boost_source(root, source_root)
+
+            self.assertEqual(target, source_root / "core" / "Common" / "3dParty" / "boost" / "boost_1_72_0")
+            self.assertTrue((target / "boost.cpp").is_file())
+            self.assertTrue((target / "libs" / "filesystem").is_dir())
+
     def test_ensure_mirror_removes_partial_clone_on_failure(self):
         module = self._import_module()
 

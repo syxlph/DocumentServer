@@ -30,6 +30,9 @@ REQUIRED_AUX_REPOS = {
     "document-server-integration": "https://github.com/ONLYOFFICE/document-server-integration.git",
 }
 REQUIRED_SUBMODULE_PATHS = ["core", "core-fonts", "dictionaries", "sdkjs", "server", "web-apps"]
+BOOST_CACHE_REPO = "https://github.com/boostorg/boost.git"
+BOOST_CACHE_TAG = "boost-1.72.0"
+BOOST_CACHE_DIRNAME = "boost_1_72_0"
 BUILD_CACHE_VOLUME = modal.Volume.from_name(CACHE_VOLUME_NAME, create_if_missing=True)
 
 
@@ -151,6 +154,45 @@ def workspace_repo_target(build_root, repo_name):
     return build_root.parent / repo_name
 
 
+def boost_cache_source_path(cache_root):
+    return cache_root / "third_party" / BOOST_CACHE_DIRNAME
+
+
+def ensure_cached_boost_source(cache_root, run_command=run):
+    cache_path = boost_cache_source_path(cache_root)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    if cache_path.exists():
+        return cache_path
+
+    try:
+        run_command(
+            [
+                "git",
+                "clone",
+                "--recursive",
+                "--depth=1",
+                BOOST_CACHE_REPO,
+                str(cache_path),
+                "-b",
+                BOOST_CACHE_TAG,
+            ]
+        )
+    except subprocess.CalledProcessError:
+        if cache_path.exists():
+            shutil.rmtree(cache_path)
+        raise
+
+    return cache_path
+
+
+def populate_boost_source(cache_root, source_root, run_command=run):
+    cached_boost = ensure_cached_boost_source(cache_root, run_command=run_command)
+    target = source_root / "core" / "Common" / "3dParty" / "boost" / BOOST_CACHE_DIRNAME
+    remove_path(target)
+    shutil.copytree(cached_boost, target, symlinks=True)
+    return target
+
+
 def required_submodule_urls(github_repository):
     owner = github_repository.split("/", 1)[0]
     return {
@@ -213,6 +255,8 @@ def build_artifact(repo_url, source_ref, release_tag, github_repository, builder
     with tempfile.TemporaryDirectory(prefix="onlyoffice-fork-build-") as tmpdir:
         work_root = Path(tmpdir)
         source_root = prepare_workspace(work_root, repo_url, source_ref, github_repository)
+        populate_boost_source(CACHE_ROOT, source_root)
+        BUILD_CACHE_VOLUME.commit()
         build_root = Path("/build_tools")
         env = os.environ.copy()
         env["PRODUCT_VERSION"] = (build_root / "version").read_text(encoding="utf-8").strip()
