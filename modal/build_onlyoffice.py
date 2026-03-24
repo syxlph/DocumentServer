@@ -119,11 +119,16 @@ def ensure_mirror(cache_root, cache_name, clone_url):
     mirror_root.mkdir(parents=True, exist_ok=True)
     mirror_path = mirror_root / f"{cache_name}.git"
 
-    if mirror_path.exists():
-        run(["git", "remote", "set-url", "origin", clone_url], cwd=mirror_path)
-        run(["git", "fetch", "--prune", "--tags", "origin"], cwd=mirror_path)
-    else:
-        run(["git", "clone", "--mirror", clone_url, str(mirror_path)])
+    try:
+        if mirror_path.exists():
+            run(["git", "remote", "set-url", "origin", clone_url], cwd=mirror_path)
+            run(["git", "fetch", "--prune", "--tags", "origin"], cwd=mirror_path)
+        else:
+            run(["git", "clone", clone_url, str(mirror_path)])
+    except subprocess.CalledProcessError:
+        if mirror_path.exists():
+            shutil.rmtree(mirror_path)
+        raise
 
     return mirror_path
 
