@@ -9,7 +9,26 @@ from pathlib import Path
 
 import modal
 import requests
-from build_config import resolve_builder_image
+
+try:
+    from build_config import resolve_builder_image
+except ModuleNotFoundError:
+    # Modal imports the entrypoint file in isolation inside the remote container,
+    # so sibling helper modules are not guaranteed to be present there.
+    def resolve_builder_image(environ, config_path=None):
+        if config_path is None:
+            config_path = Path(__file__).with_name(".builder-image")
+
+        builder_image = environ.get("ONLYOFFICE_BUILDER_IMAGE", "").strip()
+        if builder_image:
+            return builder_image
+
+        if config_path.is_file():
+            builder_image = config_path.read_text(encoding="utf-8").strip()
+            if builder_image:
+                return builder_image
+
+        raise RuntimeError("ONLYOFFICE_BUILDER_IMAGE must be set")
 
 APP_NAME = "onlyoffice-fork-build"
 GITHUB_API = "https://api.github.com"
