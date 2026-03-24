@@ -32,6 +32,26 @@ class FakeSecretModule:
         return payload
 
 
+class FakeVolumeHandle:
+    def commit(self):
+        return None
+
+    def reload(self):
+        return None
+
+
+class FakeVolumeModule:
+    calls = []
+
+    @classmethod
+    def from_name(cls, name, create_if_missing=False):
+        cls.calls.append({
+            "name": name,
+            "create_if_missing": create_if_missing,
+        })
+        return FakeVolumeHandle()
+
+
 class FakeApp:
     def __init__(self, _name):
         self.name = _name
@@ -56,6 +76,7 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
         fake_modal.is_local = lambda: False
         fake_modal.Image = FakeImageModule
         fake_modal.Secret = FakeSecretModule
+        fake_modal.Volume = FakeVolumeModule
         fake_modal.App = FakeApp
         fake_requests = types.ModuleType("requests")
 
@@ -65,6 +86,7 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
             sys.modules["modal"] = fake_modal
             sys.modules["requests"] = fake_requests
             FakeImageModule.calls = []
+            FakeVolumeModule.calls = []
 
             spec = importlib.util.spec_from_file_location("test_build_onlyoffice_remote", module_path)
             module = importlib.util.module_from_spec(spec)
@@ -99,6 +121,12 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
         self.assertEqual(urls["server"], "https://github.com/ONLYOFFICE/server.git")
         self.assertEqual(urls["sdkjs"], "https://github.com/syxlph/sdkjs.git")
         self.assertEqual(urls["web-apps"], "https://github.com/syxlph/web-apps.git")
+
+    def test_remote_import_declares_named_cache_volume(self):
+        module = self._import_module()
+
+        self.assertEqual(FakeVolumeModule.calls[0]["name"], module.CACHE_VOLUME_NAME)
+        self.assertTrue(FakeVolumeModule.calls[0]["create_if_missing"])
 
 
 if __name__ == "__main__":

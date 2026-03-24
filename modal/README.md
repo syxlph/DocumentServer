@@ -29,8 +29,10 @@ The script:
 
 1. launches a Modal function inside the pinned builder image
    The builder image can come from `ONLYOFFICE_BUILDER_IMAGE` or `modal/.builder-image`.
-2. clones `DocumentServer` at the requested ref and initializes submodules
-3. clones the auxiliary upstream repos required by `build_tools`
-4. runs the source build with `build_tools`
-5. creates a runtime tarball, manifest, and checksum
-6. uploads those files to the target GitHub Release
+2. declares a named Modal Volume for git mirrors and lets Modal create it automatically on first use
+3. refreshes cached repo mirrors from that Volume instead of recloning everything from scratch on every ephemeral app run
+4. clones `DocumentServer` at the requested ref and initializes required submodules from the cached mirrors
+5. clones the auxiliary upstream repos required by `build_tools` from the cached mirrors
+6. runs the source build with `build_tools`
+7. creates a runtime tarball, manifest, and checksum
+8. uploads those files to the target GitHub Release
