@@ -31,6 +31,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Fetch source ref for preflight
+        run: git fetch origin "${{ inputs.source_ref }}"
+
+      - name: Verify forked submodule commits are published
+        run: |
+          python3 packaging/verify_submodule_commits.py \
+            --source-ref "${{ inputs.source_ref }}" \
+            --github-repository "${{ github.repository }}"
+
       - name: Install build trigger dependencies
         run: python3 -m pip install --upgrade modal requests
 
