@@ -25,6 +25,7 @@ REQUIRED_AUX_REPOS = {
     "document-formats": "https://github.com/ONLYOFFICE/document-formats.git",
     "document-server-integration": "https://github.com/ONLYOFFICE/document-server-integration.git",
 }
+REQUIRED_SUBMODULE_PATHS = ["core", "core-fonts", "dictionaries", "sdkjs", "server", "web-apps"]
 
 
 def _local_builder_image():
@@ -108,12 +109,29 @@ def upload_asset(session, upload_url, asset_path):
         response.raise_for_status()
 
 
-def prepare_workspace(work_root, repo_url, source_ref):
+def required_submodule_urls(github_repository):
+    owner = github_repository.split("/", 1)[0]
+    return {
+        "core": "https://github.com/ONLYOFFICE/core.git",
+        "core-fonts": "https://github.com/ONLYOFFICE/core-fonts.git",
+        "dictionaries": "https://github.com/ONLYOFFICE/dictionaries.git",
+        "sdkjs": f"https://github.com/{owner}/sdkjs.git",
+        "server": "https://github.com/ONLYOFFICE/server.git",
+        "web-apps": f"https://github.com/{owner}/web-apps.git",
+    }
+
+
+def prepare_workspace(work_root, repo_url, source_ref, github_repository):
     work_root.mkdir(parents=True, exist_ok=True)
     source_root = work_root / "source"
     run(["git", "clone", repo_url, str(source_root)])
     run(["git", "checkout", source_ref], cwd=source_root)
-    run(["git", "submodule", "update", "--init", "--recursive"], cwd=source_root)
+
+    for path, url in required_submodule_urls(github_repository).items():
+        run(["git", "submodule", "set-url", path, url], cwd=source_root)
+
+    run(["git", "submodule", "sync", "--"] + REQUIRED_SUBMODULE_PATHS, cwd=source_root)
+    run(["git", "submodule", "update", "--init", "--"] + REQUIRED_SUBMODULE_PATHS, cwd=source_root)
 
     build_root = Path("/build_tools")
     for name in ["server", "sdkjs", "web-apps", "core", "core-fonts", "dictionaries", "sdkjs-plugins"]:
@@ -139,7 +157,7 @@ def build_artifact(repo_url, source_ref, release_tag, github_repository, builder
     github_token = os.environ["GITHUB_TOKEN"]
     with tempfile.TemporaryDirectory(prefix="onlyoffice-fork-build-") as tmpdir:
         work_root = Path(tmpdir)
-        source_root = prepare_workspace(work_root, repo_url, source_ref)
+        source_root = prepare_workspace(work_root, repo_url, source_ref, github_repository)
         build_root = Path("/build_tools")
         env = os.environ.copy()
         env["PRODUCT_VERSION"] = (build_root / "version").read_text(encoding="utf-8").strip()
