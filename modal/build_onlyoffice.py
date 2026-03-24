@@ -152,7 +152,7 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
     return source_root
 
 
-@app.function(image=_image(), secrets=_secrets(), timeout=60 * 60 * 4, cpu=8, memory=32768)
+@app.function(image=_image(), secrets=_secrets(), timeout=60 * 60 * 4)
 def build_artifact(repo_url, source_ref, release_tag, github_repository, builder_image):
     github_token = os.environ["GITHUB_TOKEN"]
     with tempfile.TemporaryDirectory(prefix="onlyoffice-fork-build-") as tmpdir:
