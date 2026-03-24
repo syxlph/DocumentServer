@@ -167,13 +167,23 @@ Structured error codes:
 
 ## Zotero Settings And Citation Flow
 
-The hidden runtime reads the same browser-side Zotero settings that the visible Zotero plugin uses:
+The hidden runtime vendors its own Zotero execution path inside `agent-plugin`.
+
+The visible/native Zotero plugin may remain upstream/default and unmodified. The hidden runtime should not depend on the visible plugin being open, but it should resolve its auth/settings from the same browser-side storage location native Zotero uses when those values are available.
+
+Shared settings/auth keys:
 
 - `zoteroUserId`
 - `zoteroApiKey`
 - `zoteroUserGroups`
 - `zoteroStyleId`
-- `zoteroLocale`
+- `zoteroLocale` when upstream/native Zotero persists it
+
+Locale policy:
+
+- use `zoteroLocale` from shared browser storage when it exists
+- otherwise use the `insertCitation` request's explicit `options.locale` when provided
+- otherwise fall back to the agent runtime's default locale
 
 Citation flow:
 

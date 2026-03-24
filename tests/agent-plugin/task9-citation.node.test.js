@@ -4,14 +4,13 @@ const path = require("node:path");
 
 const pluginRoot = path.join(__dirname, "..", "..", "sdkjs-plugins", "agent-plugin");
 
-test("vendored Zotero executor reads the shared browser-side settings", async () => {
+test("vendored Zotero executor reads shared Zotero auth/settings without depending on a patched native plugin", async () => {
     const {createZoteroExecutor} = require(path.join(pluginRoot, "scripts", "zotero-executor.js"));
     const storage = new Map([
         ["zoteroUserId", "42"],
         ["zoteroApiKey", "secret-key"],
         ["zoteroUserGroups", "12;14"],
-        ["zoteroStyleId", "apa"],
-        ["zoteroLocale", "en-US"]
+        ["zoteroStyleId", "apa"]
     ]);
     const executor = createZoteroExecutor({
         storage: {
@@ -31,6 +30,45 @@ test("vendored Zotero executor reads the shared browser-side settings", async ()
         styleId: "apa",
         locale: "en-US"
     });
+});
+
+test("vendored Zotero executor lets request-time locale override missing native locale storage", async () => {
+    const {createZoteroExecutor} = require(path.join(pluginRoot, "scripts", "zotero-executor.js"));
+    const storage = new Map([
+        ["zoteroUserId", "42"],
+        ["zoteroApiKey", "secret-key"],
+        ["zoteroStyleId", "apa"]
+    ]);
+    let requestUrl = null;
+    const executor = createZoteroExecutor({
+        storage: {
+            getItem(key) {
+                return storage.has(key) ? storage.get(key) : null;
+            }
+        },
+        fetch(url) {
+            requestUrl = new URL(url);
+
+            return Promise.resolve({
+                ok: true,
+                json() {
+                    return Promise.resolve([{
+                        citation: "(Doe, 2024)"
+                    }]);
+                }
+            });
+        }
+    });
+
+    const result = await executor.formatCitation([{
+        key: "ITEMKEY",
+        library: "user"
+    }], {
+        locale: "fr-FR"
+    });
+
+    assert.equal(requestUrl.searchParams.get("locale"), "fr-FR");
+    assert.equal(result.html, "(Doe, 2024)");
 });
 
 test("agent plugin page loads the Zotero executor before bootstrapping the bridge", async () => {
