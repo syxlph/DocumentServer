@@ -13,11 +13,15 @@
 })(typeof window !== "undefined" ? window : globalThis, function() {
     var VERSION = "1.0.0";
     var MENU_ITEM_ID = "agent-add-citation";
+    var executorFactory = typeof require === "function"
+        ? require("./zotero-executor.js")
+        : (typeof window !== "undefined" ? window.OnlyOfficeAgentZoteroExecutor : null);
 
     function createAgentPlugin(options) {
         var plugin = options.plugin;
         var postHostEvent = options.postHostEvent || function() {};
         var logger = options.logger || function() {};
+        var createZoteroExecutor = options.createZoteroExecutor || (executorFactory && executorFactory.createZoteroExecutor);
         var state = {
             ready: false,
             lastContextMenuInfo: null
@@ -75,6 +79,41 @@
                 return true;
             },
 
+            onExternalPluginMessage: function(message) {
+                if (!message || message.type !== "agent.request" || message.target !== "agent") {
+                    return Promise.resolve(false);
+                }
+
+                if (message.kind === "insertCitation") {
+                    return createZoteroExecutor({})
+                        .formatCitation(message.items || [], message.options || {})
+                        .then(function(result) {
+                            return new Promise(function(resolve) {
+                                plugin.executeMethod("PasteHtml", [result.html], function() {
+                                    postHostEvent({
+                                        type: "agent.response",
+                                        target: "agent",
+                                        requestId: message.requestId,
+                                        kind: "insertCitation",
+                                        success: true,
+                                        result: {
+                                            inserted: true,
+                                            html: result.html
+                                        }
+                                    });
+                                    log("insert-citation", {
+                                        requestId: message.requestId,
+                                        html: result.html
+                                    });
+                                    resolve(true);
+                                });
+                            });
+                        });
+                }
+
+                return Promise.resolve(false);
+            },
+
             getState: function() {
                 return {
                     ready: state.ready,
@@ -117,6 +156,9 @@
         };
         plugin.event_onContextMenuClick = function(itemId) {
             bridge.onContextMenuClick(itemId);
+        };
+        plugin.onExternalPluginMessage = function(message) {
+            return bridge.onExternalPluginMessage(message);
         };
 
         return bridge;
