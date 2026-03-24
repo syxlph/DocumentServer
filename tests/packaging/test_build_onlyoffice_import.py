@@ -130,6 +130,13 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
         self.assertEqual(FakeVolumeModule.calls[0]["name"], module.CACHE_VOLUME_NAME)
         self.assertTrue(FakeVolumeModule.calls[0]["create_if_missing"])
 
+    def test_workspace_repo_target_uses_sibling_layout(self):
+        module = self._import_module()
+
+        self.assertEqual(module.workspace_repo_target(Path("/build_tools"), "core"), Path("/core"))
+        self.assertEqual(module.workspace_repo_target(Path("/build_tools"), "sdkjs"), Path("/sdkjs"))
+        self.assertEqual(module.workspace_repo_target(Path("/build_tools"), "onlyoffice.github.io"), Path("/onlyoffice.github.io"))
+
     def test_ensure_mirror_removes_partial_clone_on_failure(self):
         module = self._import_module()
 

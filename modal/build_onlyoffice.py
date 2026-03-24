@@ -139,6 +139,18 @@ def clone_from_mirror(mirror_path, target_path):
     run(["git", "clone", str(mirror_path), str(target_path)])
 
 
+def remove_path(target):
+    if target.exists() or target.is_symlink():
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+
+
+def workspace_repo_target(build_root, repo_name):
+    return build_root.parent / repo_name
+
+
 def required_submodule_urls(github_repository):
     owner = github_repository.split("/", 1)[0]
     return {
@@ -181,16 +193,14 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
 
     build_root = Path("/build_tools")
     for name in ["server", "sdkjs", "web-apps", "core", "core-fonts", "dictionaries", "sdkjs-plugins"]:
-        target = build_root / name
-        if target.exists() or target.is_symlink():
-            if target.is_dir() and not target.is_symlink():
-                shutil.rmtree(target)
-            else:
-                target.unlink()
+        remove_path(build_root / name)
+        target = workspace_repo_target(build_root, name)
+        remove_path(target)
         os.symlink(source_root / name, target, target_is_directory=True)
 
     for name, clone_url in REQUIRED_AUX_REPOS.items():
-        target = build_root / name
+        remove_path(build_root / name)
+        target = workspace_repo_target(build_root, name)
         clone_from_mirror(MIRROR_ROOT / f"{name}.git", target)
 
     return source_root
