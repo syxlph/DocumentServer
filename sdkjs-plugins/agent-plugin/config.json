@@ -1,0 +1,17 @@
+{
+  "name": "Agent Bridge",
+  "guid": "asc.{7C0D3AE4-4932-4A1D-9E7A-6A7A2C7D98F1}",
+  "version": "1.0.0",
+  "variations": [
+    {
+      "description": "Agent Bridge",
+      "url": "index.html",
+      "EditorsSupport": ["word"],
+      "type": "agent",
+      "isViewer": false,
+      "initDataType": "none",
+      "initData": "",
+      "events": ["onContextMenuShow", "onContextMenuClick"]
+    }
+  ]
+}
