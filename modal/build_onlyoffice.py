@@ -6,15 +6,18 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
 
 import modal
-import requests
 
 PLACEHOLDER_REMOTE_IMAGE = "docker.io/library/debian:bookworm-slim"
 CACHE_VOLUME_NAME = "onlyoffice-fork-build-cache"
 CACHE_MOUNT_PATH = Path("/cache")
 CACHE_ROOT = CACHE_MOUNT_PATH / "onlyoffice-fork"
 MIRROR_ROOT = CACHE_ROOT / "mirrors"
+WORKSPACE_CACHE_ROOT = CACHE_ROOT / "workspaces"
 
 if modal.is_local():
     from build_config import resolve_builder_image
@@ -64,7 +67,7 @@ def _image():
         builder_image,
         add_python="3.11",
         secret=registry_secret,
-    ).pip_install("requests")
+    )
 
 
 def _secrets():
@@ -85,17 +88,55 @@ def capture(command, cwd=None, env=None):
     return subprocess.check_output(command, cwd=cwd, env=env, text=True).strip()
 
 
+def require_github_token(env):
+    github_token = env.get("GITHUB_TOKEN")
+    if not github_token:
+        raise RuntimeError("GITHUB_TOKEN is required for the Modal artifact build.")
+    return github_token
+
+
 def git_status_lines(repo_root, capture_command=capture):
     output = capture_command(["git", "status", "--short"], cwd=repo_root)
     return [line for line in output.splitlines() if line.strip()]
 
 
-def ensure_release(session, repository, release_tag):
-    response = session.get(f"{GITHUB_API}/repos/{repository}/releases/tags/{release_tag}")
-    if response.status_code == 404:
-        create = session.post(
+def github_api_request(method, url, github_token, payload=None, headers=None, data=None):
+    request_headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "onlyoffice-fork-build",
+    }
+    if headers:
+        request_headers.update(headers)
+
+    body = None
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+        request_headers["Content-Type"] = "application/json"
+    elif data is not None:
+        body = data
+
+    req = urllib_request.Request(url, data=body, headers=request_headers, method=method)
+    try:
+        with urllib_request.urlopen(req) as response:
+            return response.status, dict(response.headers), response.read()
+    except urllib_error.HTTPError as exc:
+        return exc.code, dict(exc.headers), exc.read()
+
+
+def ensure_release(github_token, repository, release_tag):
+    status, _headers, body = github_api_request(
+        "GET",
+        f"{GITHUB_API}/repos/{repository}/releases/tags/{release_tag}",
+        github_token,
+    )
+    if status == 404:
+        create_status, _create_headers, create_body = github_api_request(
+            "POST",
             f"{GITHUB_API}/repos/{repository}/releases",
-            json={
+            github_token,
+            payload={
                 "tag_name": release_tag,
                 "name": release_tag,
                 "draft": False,
@@ -103,23 +144,40 @@ def ensure_release(session, repository, release_tag):
                 "generate_release_notes": False,
             },
         )
-        create.raise_for_status()
-        return create.json()
+        if create_status >= 400:
+            raise RuntimeError(
+                f"Failed to create release {release_tag}: {create_status} {create_body.decode('utf-8', 'replace')}"
+            )
+        return json.loads(create_body.decode("utf-8"))
 
-    response.raise_for_status()
-    return response.json()
-
-
-def upload_asset(session, upload_url, asset_path):
-    params = {"name": asset_path.name}
-    with asset_path.open("rb") as stream:
-        response = session.post(
-            upload_url.split("{", 1)[0],
-            params=params,
-            headers={"Content-Type": "application/octet-stream"},
-            data=stream,
+    if status >= 400:
+        raise RuntimeError(
+            f"Failed to fetch release {release_tag}: {status} {body.decode('utf-8', 'replace')}"
         )
-        response.raise_for_status()
+    return json.loads(body.decode("utf-8"))
+
+
+def delete_asset(github_token, asset_url):
+    status, _headers, body = github_api_request("DELETE", asset_url, github_token)
+    if status >= 400:
+        raise RuntimeError(f"Failed to delete asset: {status} {body.decode('utf-8', 'replace')}")
+
+
+def upload_asset(github_token, upload_url, asset_path):
+    upload_base = upload_url.split("{", 1)[0]
+    upload_target = f"{upload_base}?{urllib_parse.urlencode({'name': asset_path.name})}"
+    with asset_path.open("rb") as stream:
+        status, _headers, body = github_api_request(
+            "POST",
+            upload_target,
+            github_token,
+            headers={"Content-Type": "application/octet-stream"},
+            data=stream.read(),
+        )
+    if status >= 400:
+        raise RuntimeError(
+            f"Failed to upload asset {asset_path.name}: {status} {body.decode('utf-8', 'replace')}"
+        )
 
 
 def ensure_mirror(cache_root, cache_name, clone_url):
@@ -145,6 +203,10 @@ def clone_from_mirror(mirror_path, target_path):
     if target_path.exists():
         shutil.rmtree(target_path)
     run(["git", "clone", str(mirror_path), str(target_path)])
+
+
+def workspace_checkout_cache_path(cache_root, checkout_name):
+    return cache_root / "workspaces" / checkout_name
 
 
 def remove_path(target):
@@ -189,6 +251,15 @@ def boost_cache_source_path(cache_root):
     return cache_root / "third_party" / BOOST_CACHE_DIRNAME
 
 
+def remote_branch_exists(repo_root, branch_name):
+    result = subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/remotes/origin/{branch_name}"],
+        cwd=repo_root,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def ensure_cached_boost_source(cache_root, run_command=run):
     cache_path = boost_cache_source_path(cache_root)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,6 +295,29 @@ def populate_boost_source(cache_root, source_root, run_command=run):
     return target
 
 
+def refresh_checkout_from_mirror(checkout_root, mirror_path, clone_url, source_ref=None):
+    if checkout_root.exists():
+        run(["git", "remote", "set-url", "origin", clone_url], cwd=checkout_root)
+        run(["git", "fetch", "--prune", "--tags", "origin"], cwd=checkout_root)
+    else:
+        clone_from_mirror(mirror_path, checkout_root)
+        run(["git", "remote", "set-url", "origin", clone_url], cwd=checkout_root)
+        run(["git", "fetch", "--prune", "--tags", "origin"], cwd=checkout_root)
+
+    if source_ref:
+        if remote_branch_exists(checkout_root, source_ref):
+            run(["git", "checkout", "-B", source_ref, f"origin/{source_ref}"], cwd=checkout_root)
+        else:
+            run(["git", "checkout", "--force", source_ref], cwd=checkout_root)
+
+    return checkout_root
+
+
+def copy_cached_checkout(cached_checkout, target_path):
+    remove_path(target_path)
+    shutil.copytree(cached_checkout, target_path, symlinks=True)
+
+
 def required_submodule_urls(github_repository):
     owner = github_repository.split("/", 1)[0]
     return {
@@ -239,6 +333,7 @@ def required_submodule_urls(github_repository):
 def prepare_workspace(work_root, repo_url, source_ref, github_repository):
     work_root.mkdir(parents=True, exist_ok=True)
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    WORKSPACE_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     source_root = work_root / "source"
     documentserver_mirror = ensure_mirror(CACHE_ROOT, "documentserver", repo_url)
     submodule_urls = required_submodule_urls(github_repository)
@@ -249,20 +344,25 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
 
     BUILD_CACHE_VOLUME.commit()
 
-    clone_from_mirror(documentserver_mirror, source_root)
-    run(["git", "remote", "set-url", "origin", repo_url], cwd=source_root)
-    run(["git", "fetch", "--prune", "origin"], cwd=source_root)
-    run(["git", "checkout", source_ref], cwd=source_root)
+    cached_source_root = refresh_checkout_from_mirror(
+        workspace_checkout_cache_path(CACHE_ROOT, "documentserver"),
+        documentserver_mirror,
+        repo_url,
+        source_ref=source_ref,
+    )
 
     for path in REQUIRED_SUBMODULE_PATHS:
         mirror_uri = (MIRROR_ROOT / f"{path}.git").resolve().as_uri()
-        run(["git", "submodule", "set-url", path, mirror_uri], cwd=source_root)
+        run(["git", "submodule", "set-url", path, mirror_uri], cwd=cached_source_root)
 
-    run(["git", "submodule", "sync", "--"] + REQUIRED_SUBMODULE_PATHS, cwd=source_root)
+    run(["git", "submodule", "sync", "--"] + REQUIRED_SUBMODULE_PATHS, cwd=cached_source_root)
     run(
         ["git", "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--"] + REQUIRED_SUBMODULE_PATHS,
-        cwd=source_root,
+        cwd=cached_source_root,
     )
+    BUILD_CACHE_VOLUME.commit()
+
+    copy_cached_checkout(cached_source_root, source_root)
 
     build_root = Path("/build_tools")
     source_build_tools = workspace_source_build_tools_target(source_root)
@@ -278,7 +378,12 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
     for name, clone_url in REQUIRED_AUX_REPOS.items():
         remove_path(build_root / name)
         target = workspace_repo_target(build_root, name)
-        clone_from_mirror(MIRROR_ROOT / f"{name}.git", target)
+        cached_aux_root = refresh_checkout_from_mirror(
+            workspace_checkout_cache_path(CACHE_ROOT, name),
+            MIRROR_ROOT / f"{name}.git",
+            clone_url,
+        )
+        copy_cached_checkout(cached_aux_root, target)
 
     validate_workspace_contract(build_root, source_root)
     return source_root
@@ -287,7 +392,7 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
 @app.function(image=_image(), secrets=_secrets(), timeout=60 * 60 * 4, volumes={str(CACHE_MOUNT_PATH): BUILD_CACHE_VOLUME})
 def build_artifact(repo_url, source_ref, release_tag, github_repository, builder_image):
     BUILD_CACHE_VOLUME.reload()
-    github_token = os.environ["GITHUB_TOKEN"]
+    github_token = require_github_token(os.environ)
     with tempfile.TemporaryDirectory(prefix="onlyoffice-fork-build-") as tmpdir:
         work_root = Path(tmpdir)
         source_root = prepare_workspace(work_root, repo_url, source_ref, github_repository)
@@ -364,21 +469,13 @@ def build_artifact(repo_url, source_ref, release_tag, github_repository, builder
             env=env,
         )
 
-        session = requests.Session()
-        session.headers.update({
-            "Authorization": f"Bearer {github_token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
-
-        release = ensure_release(session, github_repository, release_tag)
+        release = ensure_release(github_token, github_repository, release_tag)
         upload_url = release["upload_url"]
         existing_assets = {asset["name"]: asset["url"] for asset in release.get("assets", [])}
         for asset_path in sorted(output_dir.iterdir()):
             if asset_path.name in existing_assets:
-                delete = session.delete(existing_assets[asset_path.name])
-                delete.raise_for_status()
-            upload_asset(session, upload_url, asset_path)
+                delete_asset(github_token, existing_assets[asset_path.name])
+            upload_asset(github_token, upload_url, asset_path)
 
         return {
             "release_tag": release_tag,
@@ -391,12 +488,9 @@ def main(source_ref: str, release_tag: str, github_repository: str, repo_url: st
     builder_image = _local_builder_image()
     if not builder_image:
         raise RuntimeError("ONLYOFFICE_BUILDER_IMAGE must be set for local Modal invocation")
+    github_token = require_github_token(os.environ)
 
     if not repo_url:
-        github_token = os.environ.get("GITHUB_TOKEN")
-        if github_token:
-            repo_url = f"https://x-access-token:{github_token}@github.com/{github_repository}.git"
-        else:
-            repo_url = f"https://github.com/{github_repository}.git"
+        repo_url = f"https://x-access-token:{github_token}@github.com/{github_repository}.git"
     result = build_artifact.remote(repo_url, source_ref, release_tag, github_repository, builder_image)
     print(json.dumps(result, indent=2))

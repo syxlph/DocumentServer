@@ -10,8 +10,10 @@ from pathlib import Path
 class FakeImageHandle:
     def __init__(self, ref):
         self.ref = ref
+        self.pip_install_calls = []
 
     def pip_install(self, *_packages):
+        self.pip_install_calls.append(_packages)
         return self
 
 
@@ -80,13 +82,9 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
         fake_modal.Secret = FakeSecretModule
         fake_modal.Volume = FakeVolumeModule
         fake_modal.App = FakeApp
-        fake_requests = types.ModuleType("requests")
-
         previous_modal = sys.modules.get("modal")
-        previous_requests = sys.modules.get("requests")
         try:
             sys.modules["modal"] = fake_modal
-            sys.modules["requests"] = fake_requests
             FakeImageModule.calls = []
             FakeVolumeModule.calls = []
 
@@ -102,15 +100,17 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
             else:
                 sys.modules.pop("modal", None)
 
-            if previous_requests is not None:
-                sys.modules["requests"] = previous_requests
-            else:
-                sys.modules.pop("requests", None)
-
     def test_remote_import_uses_placeholder_image_without_local_builder_state(self):
         module = self._import_module()
 
         self.assertEqual(FakeImageModule.calls[0]["ref"], module.PLACEHOLDER_REMOTE_IMAGE)
+
+    def test_remote_import_does_not_add_extra_requests_layer(self):
+        module = self._import_module()
+
+        image = module._image()
+
+        self.assertEqual(image.pip_install_calls, [])
 
     def test_required_submodule_urls_uses_upstream_for_unforked_repos(self):
         module = self._import_module()
@@ -143,6 +143,14 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
         self.assertEqual(
             module.workspace_source_build_tools_target(Path("/tmp/build/source")),
             Path("/tmp/build/source/build_tools"),
+        )
+
+    def test_workspace_checkout_cache_path_uses_cache_volume_root(self):
+        module = self._import_module()
+
+        self.assertEqual(
+            module.workspace_checkout_cache_path(Path("/cache/onlyoffice-fork"), "documentserver"),
+            Path("/cache/onlyoffice-fork/workspaces/documentserver"),
         )
 
     def test_validate_workspace_contract_raises_for_missing_expected_paths(self):
@@ -246,6 +254,23 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
             self.assertTrue((target / "boost.cpp").is_file())
             self.assertTrue((target / "libs" / "filesystem").is_dir())
 
+    def test_copy_cached_checkout_replaces_target_with_cached_tree(self):
+        module = self._import_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cached = root / "cached"
+            target = root / "target"
+            cached.mkdir()
+            target.mkdir()
+            (cached / "README.md").write_text("cached", encoding="utf-8")
+            (target / "old.txt").write_text("old", encoding="utf-8")
+
+            module.copy_cached_checkout(cached, target)
+
+            self.assertTrue((target / "README.md").is_file())
+            self.assertFalse((target / "old.txt").exists())
+
     def test_git_status_lines_returns_non_empty_entries(self):
         module = self._import_module()
 
@@ -258,6 +283,19 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
             module.git_status_lines(Path("/repo"), capture_command=fake_capture),
             [" M libs/system/build.jam", "?? bin.v2/"],
         )
+
+    def test_require_github_token_raises_when_missing(self):
+        module = self._import_module()
+
+        with self.assertRaises(RuntimeError) as error:
+            module.require_github_token({})
+
+        self.assertIn("GITHUB_TOKEN", str(error.exception))
+
+    def test_require_github_token_returns_value_when_present(self):
+        module = self._import_module()
+
+        self.assertEqual(module.require_github_token({"GITHUB_TOKEN": "secret"}), "secret")
 
     def test_ensure_mirror_removes_partial_clone_on_failure(self):
         module = self._import_module()
