@@ -163,6 +163,28 @@ def workspace_source_build_tools_target(source_root):
     return source_root / "build_tools"
 
 
+def workspace_contract_paths(build_root, source_root):
+    paths = [("build-root", build_root), ("source-build-tools", workspace_source_build_tools_target(source_root))]
+    for name in REQUIRED_SUBMODULE_PATHS + ["sdkjs-plugins"]:
+        paths.append((f"repo:{name}", workspace_repo_target(build_root, name)))
+    for name in sorted(REQUIRED_AUX_REPOS):
+        paths.append((f"aux:{name}", workspace_repo_target(build_root, name)))
+    return paths
+
+
+def validate_workspace_contract(build_root, source_root):
+    missing = [
+        {"name": name, "path": str(path)}
+        for name, path in workspace_contract_paths(build_root, source_root)
+        if not path.exists()
+    ]
+    if missing:
+        raise RuntimeError(
+            "Modal workspace contract is incomplete: "
+            + json.dumps({"build_root": str(build_root), "source_root": str(source_root), "missing": missing})
+        )
+
+
 def boost_cache_source_path(cache_root):
     return cache_root / "third_party" / BOOST_CACHE_DIRNAME
 
@@ -258,6 +280,7 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
         target = workspace_repo_target(build_root, name)
         clone_from_mirror(MIRROR_ROOT / f"{name}.git", target)
 
+    validate_workspace_contract(build_root, source_root)
     return source_root
 
 

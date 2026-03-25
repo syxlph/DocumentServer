@@ -145,6 +145,39 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
             Path("/tmp/build/source/build_tools"),
         )
 
+    def test_validate_workspace_contract_raises_for_missing_expected_paths(self):
+        module = self._import_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            build_root = root / "build_tools"
+            source_root = root / "source"
+            build_root.mkdir()
+            source_root.mkdir()
+
+            with self.assertRaises(RuntimeError) as error:
+                module.validate_workspace_contract(build_root, source_root)
+
+        message = str(error.exception)
+        self.assertIn("source-build-tools", message)
+        self.assertIn("repo:core", message)
+
+    def test_validate_workspace_contract_accepts_expected_layout(self):
+        module = self._import_module()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            build_root = root / "build_tools"
+            source_root = root / "source"
+            build_root.mkdir()
+            source_root.mkdir()
+
+            (source_root / "build_tools").mkdir()
+            for name in module.REQUIRED_SUBMODULE_PATHS + ["sdkjs-plugins"] + sorted(module.REQUIRED_AUX_REPOS):
+                (root / name).mkdir()
+
+            module.validate_workspace_contract(build_root, source_root)
+
     def test_boost_cache_source_path_uses_volume_root(self):
         module = self._import_module()
 
