@@ -30,8 +30,23 @@ class ForkArtifactsTests(unittest.TestCase):
         )
         self.assertEqual(
             fork_artifacts.immutable_image_tag(manifest),
-            "ds-19dfbbe7-sdkjs-3f5d86f09a-web-apps-4d56c3e655",
+            "ds-19dfbbe7-sdkjs-3f5d86f09a-wa-4d56c3e655-af602135c6ee",
         )
+
+    def test_immutable_image_tag_stays_docker_safe_for_full_shas(self):
+        manifest = fork_artifacts.build_manifest(
+            release_tag="v0.1.0-agent.20260325.2",
+            source_ref="agent-plugin",
+            builder_image="ghcr.io/syxlph/onlyoffice-builder:20260324-51516e6",
+            documentserver_sha="e8e77fde2d070737561e93aa20fb68f64b6a2f69",
+            sdkjs_sha="3f5d86f09a01a63ca7435ded67481c1b67a0786d",
+            web_apps_sha="4d56c3e6557659afa6498affb21a029e6624ce3a",
+        )
+
+        tag = fork_artifacts.immutable_image_tag(manifest)
+
+        self.assertLessEqual(len(tag), 128)
+        self.assertRegex(tag, r"^ds-[0-9a-f]{12}-sdkjs-[0-9a-f]{12}-wa-[0-9a-f]{12}-[0-9a-f]{12}$")
 
     def test_verify_release_assets_checks_checksum_and_expected_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:

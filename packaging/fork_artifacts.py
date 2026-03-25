@@ -37,13 +37,24 @@ def artifact_base_name(manifest):
 
 
 def immutable_image_tag(manifest):
+    repo_fingerprint = hashlib.sha256(
+        (
+            manifest["repos"]["DocumentServer"]
+            + ":"
+            + manifest["repos"]["sdkjs"]
+            + ":"
+            + manifest["repos"]["web-apps"]
+        ).encode("utf-8")
+    ).hexdigest()[:12]
     return (
         "ds-"
-        + manifest["repos"]["DocumentServer"]
+        + manifest["repos"]["DocumentServer"][:12]
         + "-sdkjs-"
-        + manifest["repos"]["sdkjs"]
-        + "-web-apps-"
-        + manifest["repos"]["web-apps"]
+        + manifest["repos"]["sdkjs"][:12]
+        + "-wa-"
+        + manifest["repos"]["web-apps"][:12]
+        + "-"
+        + repo_fingerprint
     )
 
 
