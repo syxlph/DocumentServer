@@ -96,3 +96,46 @@ test("agent plugin bootstrap emits the dedicated host callback lane", async () =
         }
     });
 });
+
+test("agent plugin responses stay on the dedicated callback lane", async () => {
+    const {createAgentPlugin} = require(path.join(pluginRoot, "scripts", "agent.js"));
+    const posted = [];
+    const plugin = {
+        guid: "asc.{00000000-0000-0000-0000-000000000003}",
+        executeMethod(name, args, callback) {
+            if (name === "GetVersion" && callback) {
+                callback("9.3.1");
+            }
+        }
+    };
+    const agent = createAgentPlugin({
+        plugin,
+        postHostEvent(payload) {
+            posted.push({
+                type: "onAgentPluginMessageCallback",
+                data: payload
+            });
+        }
+    });
+
+    agent.init();
+    await agent.onExternalPluginMessage({
+        type: "agent.request",
+        target: "agent",
+        requestId: "req-callback-1",
+        kind: "executeMethod",
+        name: "GetVersion",
+        args: []
+    });
+
+    assert.equal(posted[0].type, "onAgentPluginMessageCallback");
+    assert.equal(posted[1].type, "onAgentPluginMessageCallback");
+    assert.deepEqual(posted[1].data, {
+        type: "agent.response",
+        target: "agent",
+        requestId: "req-callback-1",
+        kind: "executeMethod",
+        success: true,
+        result: "9.3.1"
+    });
+});
