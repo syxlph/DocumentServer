@@ -205,6 +205,19 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
             self.assertTrue((target / "boost.cpp").is_file())
             self.assertTrue((target / "libs" / "filesystem").is_dir())
 
+    def test_git_status_lines_returns_non_empty_entries(self):
+        module = self._import_module()
+
+        def fake_capture(command, cwd=None, env=None):
+            self.assertEqual(command, ["git", "status", "--short"])
+            self.assertEqual(cwd, Path("/repo"))
+            return " M libs/system/build.jam\n?? bin.v2/\n\n"
+
+        self.assertEqual(
+            module.git_status_lines(Path("/repo"), capture_command=fake_capture),
+            [" M libs/system/build.jam", "?? bin.v2/"],
+        )
+
     def test_ensure_mirror_removes_partial_clone_on_failure(self):
         module = self._import_module()
 

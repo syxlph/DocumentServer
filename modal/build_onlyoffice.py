@@ -85,6 +85,11 @@ def capture(command, cwd=None, env=None):
     return subprocess.check_output(command, cwd=cwd, env=env, text=True).strip()
 
 
+def git_status_lines(repo_root, capture_command=capture):
+    output = capture_command(["git", "status", "--short"], cwd=repo_root)
+    return [line for line in output.splitlines() if line.strip()]
+
+
 def ensure_release(session, repository, release_tag):
     response = session.get(f"{GITHUB_API}/repos/{repository}/releases/tags/{release_tag}")
     if response.status_code == 404:
@@ -255,33 +260,48 @@ def build_artifact(repo_url, source_ref, release_tag, github_repository, builder
     with tempfile.TemporaryDirectory(prefix="onlyoffice-fork-build-") as tmpdir:
         work_root = Path(tmpdir)
         source_root = prepare_workspace(work_root, repo_url, source_ref, github_repository)
-        populate_boost_source(CACHE_ROOT, source_root)
+        boost_source = populate_boost_source(CACHE_ROOT, source_root)
         BUILD_CACHE_VOLUME.commit()
         build_root = Path("/build_tools")
         env = os.environ.copy()
         env["PRODUCT_VERSION"] = (build_root / "version").read_text(encoding="utf-8").strip()
+        boost_status_before = git_status_lines(boost_source)
+        print(json.dumps({
+            "event": "boost-source-status-before-build",
+            "path": str(boost_source),
+            "status": boost_status_before,
+        }))
 
-        run(
-            [
-                "./tools/linux/python3/bin/python3",
-                "./configure.py",
-                "--sysroot",
-                "1",
-                "--clean",
-                "1",
-                "--update",
-                "0",
-                "--module",
-                "server",
-                "--platform",
-                "linux_64",
-                "--qt-dir",
-                str(build_root / "tools/linux/qt_build/Qt-5.9.9"),
-            ],
-            cwd=build_root,
-            env=env,
-        )
-        run(["./tools/linux/python3/bin/python3", "./make.py"], cwd=build_root, env=env)
+        try:
+            run(
+                [
+                    "./tools/linux/python3/bin/python3",
+                    "./configure.py",
+                    "--sysroot",
+                    "1",
+                    "--clean",
+                    "1",
+                    "--update",
+                    "0",
+                    "--module",
+                    "server",
+                    "--platform",
+                    "linux_64",
+                    "--qt-dir",
+                    str(build_root / "tools/linux/qt_build/Qt-5.9.9"),
+                ],
+                cwd=build_root,
+                env=env,
+            )
+            run(["./tools/linux/python3/bin/python3", "./make.py"], cwd=build_root, env=env)
+        finally:
+            boost_status_after = git_status_lines(boost_source)
+            print(json.dumps({
+                "event": "boost-source-status-after-build",
+                "path": str(boost_source),
+                "status": boost_status_after,
+                "changed": boost_status_after != boost_status_before,
+            }))
 
         runtime_dir = build_root / "out/linux_64/onlyoffice/documentserver"
         if not (runtime_dir / "sdkjs-plugins/agent-plugin/config.json").is_file():
