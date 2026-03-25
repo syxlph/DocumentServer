@@ -337,7 +337,7 @@
             postHostEvent: function(payload) {
                 if (currentRoot.parent && currentRoot.parent.postMessage) {
                     currentRoot.parent.postMessage(JSON.stringify({
-                        type: "onExternalPluginMessageCallback",
+                        type: "onAgentPluginMessageCallback",
                         data: payload
                     }), "*");
                 }

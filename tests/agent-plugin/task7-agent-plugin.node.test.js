@@ -59,3 +59,40 @@ test("agent plugin boots and exposes a real context-menu bridge item", async () 
         editorVersion: "8.3.0"
     });
 });
+
+test("agent plugin bootstrap emits the dedicated host callback lane", async () => {
+    const {bootstrap} = require(path.join(pluginRoot, "scripts", "agent.js"));
+    const posted = [];
+    const root = {
+        Asc: {
+            plugin: {
+                guid: "asc.{00000000-0000-0000-0000-000000000002}",
+                executeMethod(_name, _args, callback) {
+                    if (callback) {
+                        callback(true);
+                    }
+                }
+            }
+        },
+        parent: {
+            postMessage(payload) {
+                posted.push(JSON.parse(payload));
+            }
+        },
+        console: {
+            log() {}
+        }
+    };
+
+    const bridge = bootstrap(root);
+    bridge.init();
+
+    assert.deepEqual(posted[0], {
+        type: "onAgentPluginMessageCallback",
+        data: {
+            type: "agent.ready",
+            guid: "asc.{00000000-0000-0000-0000-000000000002}",
+            version: "1.0.0"
+        }
+    });
+});
