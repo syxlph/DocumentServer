@@ -137,6 +137,14 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
         self.assertEqual(module.workspace_repo_target(Path("/build_tools"), "sdkjs"), Path("/sdkjs"))
         self.assertEqual(module.workspace_repo_target(Path("/build_tools"), "onlyoffice.github.io"), Path("/onlyoffice.github.io"))
 
+    def test_workspace_source_build_tools_target_uses_source_sibling_layout(self):
+        module = self._import_module()
+
+        self.assertEqual(
+            module.workspace_source_build_tools_target(Path("/tmp/build/source")),
+            Path("/tmp/build/source/build_tools"),
+        )
+
     def test_boost_cache_source_path_uses_volume_root(self):
         module = self._import_module()
 

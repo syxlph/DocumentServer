@@ -159,6 +159,10 @@ def workspace_repo_target(build_root, repo_name):
     return build_root.parent / repo_name
 
 
+def workspace_source_build_tools_target(source_root):
+    return source_root / "build_tools"
+
+
 def boost_cache_source_path(cache_root):
     return cache_root / "third_party" / BOOST_CACHE_DIRNAME
 
@@ -239,6 +243,10 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
     )
 
     build_root = Path("/build_tools")
+    source_build_tools = workspace_source_build_tools_target(source_root)
+    remove_path(source_build_tools)
+    os.symlink(build_root, source_build_tools, target_is_directory=True)
+
     for name in ["server", "sdkjs", "web-apps", "core", "core-fonts", "dictionaries", "sdkjs-plugins"]:
         remove_path(build_root / name)
         target = workspace_repo_target(build_root, name)
