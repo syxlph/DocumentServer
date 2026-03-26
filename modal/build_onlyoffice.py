@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import tarfile
 import tempfile
 from pathlib import Path
 from urllib import error as urllib_error
@@ -35,6 +36,7 @@ REQUIRED_SUBMODULE_PATHS = ["core", "core-fonts", "dictionaries", "sdkjs", "serv
 BOOST_CACHE_REPO = "https://github.com/boostorg/boost.git"
 BOOST_CACHE_TAG = "boost-1.72.0"
 BOOST_CACHE_DIRNAME = "boost_1_72_0"
+BOOST_CACHE_ARCHIVE_NAME = f"{BOOST_CACHE_DIRNAME}.tar.gz"
 BUILD_CACHE_VOLUME = modal.Volume.from_name(CACHE_VOLUME_NAME, create_if_missing=True)
 
 
@@ -242,42 +244,55 @@ def validate_workspace_contract(build_root, source_root):
         )
 
 
-def boost_cache_source_path(cache_root):
-    return cache_root / "third_party" / BOOST_CACHE_DIRNAME
+def boost_cache_archive_path(cache_root):
+    return cache_root / "third_party" / BOOST_CACHE_ARCHIVE_NAME
 
 
-def ensure_cached_boost_source(cache_root, run_command=run):
-    cache_path = boost_cache_source_path(cache_root)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    if cache_path.exists():
-        return cache_path
+def ensure_cached_boost_archive(cache_root, run_command=run):
+    archive_path = boost_cache_archive_path(cache_root)
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    if archive_path.exists():
+        return archive_path
 
+    temp_archive_path = archive_path.with_suffix(archive_path.suffix + ".tmp")
+    temp_clone_root = None
     try:
-        run_command(
-            [
-                "git",
-                "clone",
-                "--recursive",
-                "--depth=1",
-                BOOST_CACHE_REPO,
-                str(cache_path),
-                "-b",
-                BOOST_CACHE_TAG,
-            ]
-        )
+        with tempfile.TemporaryDirectory(prefix="boost-cache-build-", dir=archive_path.parent) as tmpdir:
+            temp_clone_root = Path(tmpdir) / BOOST_CACHE_DIRNAME
+            run_command(
+                [
+                    "git",
+                    "clone",
+                    "--recursive",
+                    "--depth=1",
+                    BOOST_CACHE_REPO,
+                    str(temp_clone_root),
+                    "-b",
+                    BOOST_CACHE_TAG,
+                ]
+            )
+            with tarfile.open(temp_archive_path, "w:gz") as archive:
+                archive.add(temp_clone_root, arcname=BOOST_CACHE_DIRNAME)
+        os.replace(temp_archive_path, archive_path)
     except subprocess.CalledProcessError:
-        if cache_path.exists():
-            shutil.rmtree(cache_path)
+        if temp_archive_path.exists():
+            temp_archive_path.unlink()
+        raise
+    except Exception:
+        if temp_archive_path.exists():
+            temp_archive_path.unlink()
         raise
 
-    return cache_path
+    return archive_path
 
 
 def populate_boost_source(cache_root, source_root, run_command=run):
-    cached_boost = ensure_cached_boost_source(cache_root, run_command=run_command)
+    cached_boost = ensure_cached_boost_archive(cache_root, run_command=run_command)
     target = source_root / "core" / "Common" / "3dParty" / "boost" / BOOST_CACHE_DIRNAME
     remove_path(target)
-    shutil.copytree(cached_boost, target, symlinks=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(cached_boost, "r:gz") as archive:
+        archive.extractall(path=target.parent, filter="fully_trusted")
     return target
 
 

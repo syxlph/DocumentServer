@@ -1,6 +1,7 @@
 import importlib.util
 import subprocess
 import sys
+import tarfile
 import tempfile
 import types
 import unittest
@@ -178,42 +179,36 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
 
             module.validate_workspace_contract(build_root, source_root)
 
-    def test_boost_cache_source_path_uses_volume_root(self):
+    def test_boost_cache_archive_path_uses_volume_root(self):
         module = self._import_module()
 
-        cache_path = module.boost_cache_source_path(Path("/cache/onlyoffice-fork"))
+        cache_path = module.boost_cache_archive_path(Path("/cache/onlyoffice-fork"))
 
-        self.assertEqual(cache_path, Path("/cache/onlyoffice-fork/third_party/boost_1_72_0"))
+        self.assertEqual(cache_path, Path("/cache/onlyoffice-fork/third_party/boost_1_72_0.tar.gz"))
 
-    def test_ensure_cached_boost_source_clones_when_missing(self):
+    def test_ensure_cached_boost_archive_clones_and_packs_when_missing(self):
         module = self._import_module()
         calls = []
 
         def fake_run(command, cwd=None, env=None):
             calls.append((command, cwd))
             if command[:2] == ["git", "clone"]:
-                Path(command[4]).mkdir(parents=True, exist_ok=True)
+                Path(command[5]).mkdir(parents=True, exist_ok=True)
+                (Path(command[5]) / "libs" / "filesystem").mkdir(parents=True, exist_ok=True)
+                (Path(command[5]) / "boost.cpp").write_text("boost", encoding="utf-8")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_root = Path(tmpdir)
-            cache_path = module.ensure_cached_boost_source(cache_root, run_command=fake_run)
+            cache_path = module.ensure_cached_boost_archive(cache_root, run_command=fake_run)
+            self.assertEqual(cache_path.name, "boost_1_72_0.tar.gz")
+            self.assertEqual(calls[0][0][:5], ["git", "clone", "--recursive", "--depth=1", "https://github.com/boostorg/boost.git"])
+            self.assertEqual(Path(calls[0][0][5]).name, "boost_1_72_0")
+            self.assertEqual(calls[0][0][6:], ["-b", "boost-1.72.0"])
+            with tarfile.open(cache_path, "r:gz") as archive:
+                self.assertIn("boost_1_72_0/boost.cpp", archive.getnames())
 
-        self.assertEqual(cache_path.name, "boost_1_72_0")
-        self.assertEqual(
-            calls[0][0],
-            [
-                "git",
-                "clone",
-                "--recursive",
-                "--depth=1",
-                "https://github.com/boostorg/boost.git",
-                str(cache_path),
-                "-b",
-                "boost-1.72.0",
-            ],
-        )
 
-    def test_ensure_cached_boost_source_removes_partial_clone_on_failure(self):
+    def test_ensure_cached_boost_archive_removes_partial_archive_on_failure(self):
         module = self._import_module()
 
         def fake_run(command, cwd=None, env=None):
@@ -224,18 +219,22 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_root = Path(tmpdir)
             with self.assertRaises(subprocess.CalledProcessError):
-                module.ensure_cached_boost_source(cache_root, run_command=fake_run)
+                module.ensure_cached_boost_archive(cache_root, run_command=fake_run)
 
-            self.assertFalse(module.boost_cache_source_path(cache_root).exists())
+            self.assertFalse(module.boost_cache_archive_path(cache_root).exists())
 
-    def test_populate_boost_source_copies_cached_tree_into_workspace(self):
+    def test_populate_boost_source_extracts_cached_archive_into_workspace(self):
         module = self._import_module()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            cached_boost = module.boost_cache_source_path(root)
-            (cached_boost / "libs" / "filesystem").mkdir(parents=True, exist_ok=True)
-            (cached_boost / "boost.cpp").write_text("boost", encoding="utf-8")
+            archive_path = module.boost_cache_archive_path(root)
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            archive_source = root / "boost_1_72_0"
+            (archive_source / "libs" / "filesystem").mkdir(parents=True, exist_ok=True)
+            (archive_source / "boost.cpp").write_text("boost", encoding="utf-8")
+            with tarfile.open(archive_path, "w:gz") as archive:
+                archive.add(archive_source, arcname="boost_1_72_0")
 
             source_root = root / "source"
             (source_root / "core" / "Common" / "3dParty" / "boost").mkdir(parents=True, exist_ok=True)
