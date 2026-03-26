@@ -145,14 +145,6 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
             Path("/tmp/build/source/build_tools"),
         )
 
-    def test_workspace_checkout_cache_path_uses_cache_volume_root(self):
-        module = self._import_module()
-
-        self.assertEqual(
-            module.workspace_checkout_cache_path(Path("/cache/onlyoffice-fork"), "documentserver"),
-            Path("/cache/onlyoffice-fork/workspaces/documentserver"),
-        )
-
     def test_validate_workspace_contract_raises_for_missing_expected_paths(self):
         module = self._import_module()
 
@@ -253,23 +245,6 @@ class BuildOnlyofficeImportTests(unittest.TestCase):
             self.assertEqual(target, source_root / "core" / "Common" / "3dParty" / "boost" / "boost_1_72_0")
             self.assertTrue((target / "boost.cpp").is_file())
             self.assertTrue((target / "libs" / "filesystem").is_dir())
-
-    def test_copy_cached_checkout_replaces_target_with_cached_tree(self):
-        module = self._import_module()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            cached = root / "cached"
-            target = root / "target"
-            cached.mkdir()
-            target.mkdir()
-            (cached / "README.md").write_text("cached", encoding="utf-8")
-            (target / "old.txt").write_text("old", encoding="utf-8")
-
-            module.copy_cached_checkout(cached, target)
-
-            self.assertTrue((target / "README.md").is_file())
-            self.assertFalse((target / "old.txt").exists())
 
     def test_git_status_lines_returns_non_empty_entries(self):
         module = self._import_module()

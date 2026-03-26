@@ -17,7 +17,6 @@ CACHE_VOLUME_NAME = "onlyoffice-fork-build-cache"
 CACHE_MOUNT_PATH = Path("/cache")
 CACHE_ROOT = CACHE_MOUNT_PATH / "onlyoffice-fork"
 MIRROR_ROOT = CACHE_ROOT / "mirrors"
-WORKSPACE_CACHE_ROOT = CACHE_ROOT / "workspaces"
 
 if modal.is_local():
     from build_config import resolve_builder_image
@@ -205,10 +204,6 @@ def clone_from_mirror(mirror_path, target_path):
     run(["git", "clone", str(mirror_path), str(target_path)])
 
 
-def workspace_checkout_cache_path(cache_root, checkout_name):
-    return cache_root / "workspaces" / checkout_name
-
-
 def remove_path(target):
     if target.exists() or target.is_symlink():
         if target.is_dir() and not target.is_symlink():
@@ -251,15 +246,6 @@ def boost_cache_source_path(cache_root):
     return cache_root / "third_party" / BOOST_CACHE_DIRNAME
 
 
-def remote_branch_exists(repo_root, branch_name):
-    result = subprocess.run(
-        ["git", "show-ref", "--verify", "--quiet", f"refs/remotes/origin/{branch_name}"],
-        cwd=repo_root,
-        check=False,
-    )
-    return result.returncode == 0
-
-
 def ensure_cached_boost_source(cache_root, run_command=run):
     cache_path = boost_cache_source_path(cache_root)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -295,29 +281,6 @@ def populate_boost_source(cache_root, source_root, run_command=run):
     return target
 
 
-def refresh_checkout_from_mirror(checkout_root, mirror_path, clone_url, source_ref=None):
-    if checkout_root.exists():
-        run(["git", "remote", "set-url", "origin", clone_url], cwd=checkout_root)
-        run(["git", "fetch", "--prune", "--tags", "origin"], cwd=checkout_root)
-    else:
-        clone_from_mirror(mirror_path, checkout_root)
-        run(["git", "remote", "set-url", "origin", clone_url], cwd=checkout_root)
-        run(["git", "fetch", "--prune", "--tags", "origin"], cwd=checkout_root)
-
-    if source_ref:
-        if remote_branch_exists(checkout_root, source_ref):
-            run(["git", "checkout", "-B", source_ref, f"origin/{source_ref}"], cwd=checkout_root)
-        else:
-            run(["git", "checkout", "--force", source_ref], cwd=checkout_root)
-
-    return checkout_root
-
-
-def copy_cached_checkout(cached_checkout, target_path):
-    remove_path(target_path)
-    shutil.copytree(cached_checkout, target_path, symlinks=True)
-
-
 def required_submodule_urls(github_repository):
     owner = github_repository.split("/", 1)[0]
     return {
@@ -333,7 +296,6 @@ def required_submodule_urls(github_repository):
 def prepare_workspace(work_root, repo_url, source_ref, github_repository):
     work_root.mkdir(parents=True, exist_ok=True)
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
-    WORKSPACE_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     source_root = work_root / "source"
     documentserver_mirror = ensure_mirror(CACHE_ROOT, "documentserver", repo_url)
     submodule_urls = required_submodule_urls(github_repository)
@@ -344,25 +306,20 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
 
     BUILD_CACHE_VOLUME.commit()
 
-    cached_source_root = refresh_checkout_from_mirror(
-        workspace_checkout_cache_path(CACHE_ROOT, "documentserver"),
-        documentserver_mirror,
-        repo_url,
-        source_ref=source_ref,
-    )
+    clone_from_mirror(documentserver_mirror, source_root)
+    run(["git", "remote", "set-url", "origin", repo_url], cwd=source_root)
+    run(["git", "fetch", "--prune", "origin"], cwd=source_root)
+    run(["git", "checkout", source_ref], cwd=source_root)
 
     for path in REQUIRED_SUBMODULE_PATHS:
         mirror_uri = (MIRROR_ROOT / f"{path}.git").resolve().as_uri()
-        run(["git", "submodule", "set-url", path, mirror_uri], cwd=cached_source_root)
+        run(["git", "submodule", "set-url", path, mirror_uri], cwd=source_root)
 
-    run(["git", "submodule", "sync", "--"] + REQUIRED_SUBMODULE_PATHS, cwd=cached_source_root)
+    run(["git", "submodule", "sync", "--"] + REQUIRED_SUBMODULE_PATHS, cwd=source_root)
     run(
         ["git", "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--"] + REQUIRED_SUBMODULE_PATHS,
-        cwd=cached_source_root,
+        cwd=source_root,
     )
-    BUILD_CACHE_VOLUME.commit()
-
-    copy_cached_checkout(cached_source_root, source_root)
 
     build_root = Path("/build_tools")
     source_build_tools = workspace_source_build_tools_target(source_root)
@@ -378,12 +335,7 @@ def prepare_workspace(work_root, repo_url, source_ref, github_repository):
     for name, clone_url in REQUIRED_AUX_REPOS.items():
         remove_path(build_root / name)
         target = workspace_repo_target(build_root, name)
-        cached_aux_root = refresh_checkout_from_mirror(
-            workspace_checkout_cache_path(CACHE_ROOT, name),
-            MIRROR_ROOT / f"{name}.git",
-            clone_url,
-        )
-        copy_cached_checkout(cached_aux_root, target)
+        clone_from_mirror(MIRROR_ROOT / f"{name}.git", target)
 
     validate_workspace_contract(build_root, source_root)
     return source_root
