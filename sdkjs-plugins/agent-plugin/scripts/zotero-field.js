@@ -264,6 +264,119 @@
         return normalizedFields;
     }
 
+    function getCitationItemIdentity(item) {
+        var normalizedItem = item || {};
+
+        if (normalizedItem.uri) {
+            return String(normalizedItem.uri);
+        }
+
+        if (Array.isArray(normalizedItem.uris) && normalizedItem.uris.length > 0 && normalizedItem.uris[0]) {
+            return String(normalizedItem.uris[0]);
+        }
+
+        if (normalizedItem.id !== undefined && normalizedItem.id !== null && String(normalizedItem.id).length > 0) {
+            return "id:" + String(normalizedItem.id);
+        }
+
+        if (normalizedItem.itemData && normalizedItem.itemData.id !== undefined && normalizedItem.itemData.id !== null) {
+            return "itemData.id:" + String(normalizedItem.itemData.id);
+        }
+
+        if (normalizedItem.itemData && normalizedItem.itemData.key !== undefined && normalizedItem.itemData.key !== null) {
+            return "itemData.key:" + String(normalizedItem.itemData.key);
+        }
+
+        return "";
+    }
+
+    function isNumericCitationContent(value) {
+        var text = normalizeString(value).trim();
+
+        if (!text) {
+            return false;
+        }
+
+        return text.replace(/[0-9\s\[\]\(\)\{\},.;:\/\\\-–—+]+/g, "") === "";
+    }
+
+    function buildCitationLabelState(existingFields) {
+        var labelByIdentity = Object.create(null);
+        var nextLabel = 1;
+
+        normalizeAddinFields(existingFields).forEach(function(field) {
+            var citationItems = field && field.citation && Array.isArray(field.citation.citationItems)
+                ? field.citation.citationItems
+                : [];
+
+            citationItems.forEach(function(item) {
+                var identity = getCitationItemIdentity(item);
+
+                if (!identity || labelByIdentity[identity] !== undefined) {
+                    return;
+                }
+
+                labelByIdentity[identity] = nextLabel;
+                nextLabel += 1;
+            });
+        });
+
+        return {
+            labelByIdentity: labelByIdentity,
+            nextLabel: nextLabel
+        };
+    }
+
+    function assignCitationLabels(existingFields, citationItems) {
+        var state = buildCitationLabelState(existingFields);
+        var labels = [];
+
+        (Array.isArray(citationItems) ? citationItems : []).forEach(function(item, index) {
+            var identity = getCitationItemIdentity(item) || "item:" + index;
+
+            if (state.labelByIdentity[identity] === undefined) {
+                state.labelByIdentity[identity] = state.nextLabel;
+                state.nextLabel += 1;
+            }
+
+            labels.push(state.labelByIdentity[identity]);
+        });
+
+        return labels;
+    }
+
+    function resolveCitationContent(content, citationItems, existingFields) {
+        if (content && typeof content === "object" && !Array.isArray(content) && (
+            content.content !== undefined ||
+            content.citationItems !== undefined ||
+            content.existingFields !== undefined
+        )) {
+            return resolveCitationContent(content.content, content.citationItems, content.existingFields);
+        }
+
+        var template = normalizeString(content);
+        var labels;
+        var labelIndex = 0;
+
+        if (!isNumericCitationContent(template)) {
+            return template;
+        }
+
+        labels = assignCitationLabels(existingFields, citationItems);
+
+        if (!labels.length) {
+            return template;
+        }
+
+        return template.replace(/\d+/g, function(match) {
+            var label = labels[labelIndex];
+
+            labelIndex += 1;
+
+            return label !== undefined ? String(label) : match;
+        });
+    }
+
     function createCitationFieldPayload(options) {
         var citation = options && options.citation ? options.citation : {};
         var items = options && options.items ? options.items : [];
@@ -281,13 +394,14 @@
             : ((citation.properties && typeof citation.properties.noteIndex === "number")
                 ? citation.properties.noteIndex
                 : 0);
+        var resolvedContent = resolveCitationContent(content, citationItems, existingFields);
 
         if (!citationObject) {
             citationObject = {
                 citationID: citationId || citation.citationID || (options && options.requestId ? String(options.requestId) : "agent-citation-" + (existingFields.length + 1)),
                 properties: {
-                    formattedCitation: content,
-                    plainCitation: content,
+                    formattedCitation: resolvedContent,
+                    plainCitation: resolvedContent,
                     noteIndex: noteIndex
                 },
                 citationItems: citationItems,
@@ -295,15 +409,24 @@
             };
         } else if (!citationObject.citationItems || !citationObject.citationItems.length) {
             citationObject.citationItems = citationItems;
+
+            if (!citationObject.schema) {
+                citationObject.schema = citation.schema || CITATION_SCHEMA;
+            }
         }
+
+        citationObject.properties = citationObject.properties || {};
+        citationObject.properties.formattedCitation = resolvedContent;
+        citationObject.properties.plainCitation = resolvedContent;
+        citationObject.properties.noteIndex = noteIndex;
 
         return {
             addinField: {
                 Value: buildCitationFieldValue(citationObject),
-                Content: content
+                Content: resolvedContent
             },
             Value: buildCitationFieldValue(citationObject),
-            Content: content,
+            Content: resolvedContent,
             citation: citationObject,
             existingFields: existingFields
         };
@@ -316,6 +439,9 @@
         parseCitationFieldValue: parseCitationFieldValue,
         normalizeAddinField: normalizeAddinField,
         normalizeAddinFields: normalizeAddinFields,
+        getCitationItemIdentity: getCitationItemIdentity,
+        isNumericCitationContent: isNumericCitationContent,
+        resolveCitationContent: resolveCitationContent,
         createCitationFieldPayload: createCitationFieldPayload
     };
 });

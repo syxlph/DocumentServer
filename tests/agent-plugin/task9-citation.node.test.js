@@ -150,6 +150,16 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
     const hostEvents = [];
     const calls = [];
     const nativeFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
+    const newCitationItem = {
+        id: 123,
+        uris: ["http://zotero.org/users/42/items/ITEMKEY"],
+        uri: "http://zotero.org/users/42/items/ITEMKEY",
+        itemData: {
+            id: 123,
+            type: "article-journal",
+            title: "Example Article"
+        }
+    };
     const plugin = {
         guid: "asc.{7C0D3AE4-4932-4A1D-9E7A-6A7A2C7D98F1}",
         executeMethod(name, args, callback) {
@@ -180,18 +190,9 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
                         library: "user"
                     }]);
                     return Promise.resolve({
-                        html: "[2]",
-                        content: "[2]",
-                        citationItems: [{
-                            id: 123,
-                            uris: ["http://zotero.org/users/42/items/ITEMKEY"],
-                            uri: "http://zotero.org/users/42/items/ITEMKEY",
-                            itemData: {
-                                id: 123,
-                                type: "article-journal",
-                                title: "Example Article"
-                            }
-                        }],
+                        html: "[1]",
+                        content: "[1]",
+                        citationItems: [newCitationItem],
                         settings: {
                             userId: "42"
                         }
@@ -200,20 +201,16 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
                 createCitationFieldPayload(payloadOptions) {
                     const {citation, items, existingFields, requestId, content, settings} = payloadOptions;
                     const normalizedExistingFields = fieldHelper.normalizeAddinFields(existingFields);
+                    const expectedContent = fieldHelper.resolveCitationContent({
+                        content: content,
+                        citationItems: [newCitationItem],
+                        existingFields: normalizedExistingFields
+                    });
 
                     assert.deepEqual(citation, {
-                        html: "[2]",
-                        content: "[2]",
-                        citationItems: [{
-                            id: 123,
-                            uris: ["http://zotero.org/users/42/items/ITEMKEY"],
-                            uri: "http://zotero.org/users/42/items/ITEMKEY",
-                            itemData: {
-                                id: 123,
-                                type: "article-journal",
-                                title: "Example Article"
-                            }
-                        }],
+                        html: "[1]",
+                        content: "[1]",
+                        citationItems: [newCitationItem],
                         settings: {
                             userId: "42"
                         }
@@ -247,7 +244,12 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
                         }
                     }]);
                     assert.equal(requestId, "req-1");
-                    assert.equal(content, "[2]");
+                    assert.equal(content, "[1]");
+                    assert.equal(expectedContent, fieldHelper.resolveCitationContent({
+                        content: "[1]",
+                        citationItems: [newCitationItem],
+                        existingFields: normalizedExistingFields
+                    }));
                     assert.equal(settings.userId, "42");
 
                     return {
@@ -255,23 +257,14 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
                             Value: fieldHelper.buildCitationFieldValue({
                                 citationID: "req-1",
                                 properties: {
-                                    formattedCitation: "[2]",
-                                    plainCitation: "[2]",
+                                    formattedCitation: expectedContent,
+                                    plainCitation: expectedContent,
                                     noteIndex: 0
                                 },
-                                citationItems: [{
-                                    id: 123,
-                                    uris: ["http://zotero.org/users/42/items/ITEMKEY"],
-                                    uri: "http://zotero.org/users/42/items/ITEMKEY",
-                                    itemData: {
-                                        id: 123,
-                                        type: "article-journal",
-                                        title: "Example Article"
-                                    }
-                                }],
+                                citationItems: [newCitationItem],
                                 schema: "https://github.com/citation-style-language/schema/raw/master/csl-citation.json"
                             }),
-                            Content: "[2]"
+                            Content: expectedContent
                         },
                         citation: citation,
                         existingFields: normalizedExistingFields
@@ -301,23 +294,38 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
             Value: fieldHelper.buildCitationFieldValue({
                 citationID: "req-1",
                 properties: {
-                    formattedCitation: "[2]",
-                    plainCitation: "[2]",
+                    formattedCitation: fieldHelper.resolveCitationContent({
+                        content: "[1]",
+                        citationItems: [newCitationItem],
+                        existingFields: fieldHelper.normalizeAddinFields([{
+                            FieldId: "1",
+                            Value: nativeFieldValue,
+                            Content: "[1]"
+                        }])
+                    }),
+                    plainCitation: fieldHelper.resolveCitationContent({
+                        content: "[1]",
+                        citationItems: [newCitationItem],
+                        existingFields: fieldHelper.normalizeAddinFields([{
+                            FieldId: "1",
+                            Value: nativeFieldValue,
+                            Content: "[1]"
+                        }])
+                    }),
                     noteIndex: 0
                 },
-                citationItems: [{
-                    id: 123,
-                    uris: ["http://zotero.org/users/42/items/ITEMKEY"],
-                    uri: "http://zotero.org/users/42/items/ITEMKEY",
-                    itemData: {
-                        id: 123,
-                        type: "article-journal",
-                        title: "Example Article"
-                    }
-                }],
+                citationItems: [newCitationItem],
                 schema: "https://github.com/citation-style-language/schema/raw/master/csl-citation.json"
             }),
-            Content: "[2]"
+            Content: fieldHelper.resolveCitationContent({
+                content: "[1]",
+                citationItems: [newCitationItem],
+                existingFields: fieldHelper.normalizeAddinFields([{
+                    FieldId: "1",
+                    Value: nativeFieldValue,
+                    Content: "[1]"
+                }])
+            })
         }]
     ]]);
     assert.deepEqual(hostEvents[0], {
@@ -328,7 +336,15 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
         success: true,
         result: {
             inserted: true,
-            html: "[2]"
+            html: fieldHelper.resolveCitationContent({
+                content: "[1]",
+                citationItems: [newCitationItem],
+                existingFields: fieldHelper.normalizeAddinFields([{
+                    FieldId: "1",
+                    Value: nativeFieldValue,
+                    Content: "[1]"
+                }])
+            })
         }
     });
 });

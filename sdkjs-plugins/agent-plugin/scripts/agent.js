@@ -242,7 +242,7 @@
                     return executeMethod("AddAddinField", [payload.addinField]).then(function() {
                         return {
                             inserted: true,
-                            html: result.html
+                            html: payload.Content || (payload.addinField && payload.addinField.Content) || (payload.citation && payload.citation.properties && payload.citation.properties.formattedCitation) || result.html
                         };
                     });
                 });
