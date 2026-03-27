@@ -79,6 +79,15 @@ test("zotero field helper rewrites prefixed numeric citations without losing the
         }],
         existingFields
     }), "see [2, p. 10; 3, p. 20]");
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "(Doe, 2024)",
+        citationItems: [{
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }],
+        existingFields
+    }), "(Doe, 2024)");
 });
 
 test("zotero field helper reuses prior numeric labels and assigns new ones by document order", async () => {
@@ -143,6 +152,34 @@ test("zotero field helper reuses prior numeric labels and assigns new ones by do
         }],
         existingFields
     }), "[2, p. 23]");
+});
+
+test("zotero field helper preserves visible sparse labels from existing native fields", async () => {
+    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
+    const sparseFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[7]","plainCitation":"[7]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
+    const existingFields = fieldHelper.normalizeAddinFields([{
+        FieldId: "1",
+        Value: sparseFieldValue,
+        Content: "[7]"
+    }]);
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "[1]",
+        citationItems: [{
+            id: "OLDER",
+            uri: "http://zotero.org/users/42/items/OLDER"
+        }],
+        existingFields
+    }), "[7]");
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "[1]",
+        citationItems: [{
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }],
+        existingFields
+    }), "[8]");
 });
 
 test("zotero field helper counts malformed visible numeric fields when assigning the next label", async () => {

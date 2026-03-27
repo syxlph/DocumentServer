@@ -377,12 +377,23 @@
         var start;
         var previousIndex;
         var previousChar;
+        var hasSeenLabelInCluster = false;
 
         if (!text) {
             return spans;
         }
 
         for (index = 0; index < text.length; index += 1) {
+            if (text[index] === "[" || text[index] === "(" || text[index] === "{") {
+                hasSeenLabelInCluster = false;
+                continue;
+            }
+
+            if (text[index] === "]" || text[index] === ")" || text[index] === "}") {
+                hasSeenLabelInCluster = false;
+                continue;
+            }
+
             if (!isNumericDigit(text[index])) {
                 continue;
             }
@@ -398,7 +409,7 @@
 
             previousChar = previousIndex >= 0 ? text[previousIndex] : "";
 
-            if (previousChar && previousChar !== "[" && previousChar !== "(" && previousChar !== "{" && previousChar !== "," && previousChar !== ";") {
+            if (previousChar && previousChar !== "[" && previousChar !== "(" && previousChar !== "{" && !(hasSeenLabelInCluster && (previousChar === "," || previousChar === ";"))) {
                 continue;
             }
 
@@ -411,6 +422,7 @@
                 start: start,
                 end: index
             });
+            hasSeenLabelInCluster = true;
 
             index -= 1;
         }
@@ -562,6 +574,9 @@
             }
 
             reservedLabels[label] = true;
+            if (label >= nextLabel) {
+                nextLabel = label + 1;
+            }
         }
 
         function takeNextLabel() {
@@ -569,10 +584,9 @@
                 nextLabel += 1;
             }
 
-            reserveLabel(nextLabel);
-            nextLabel += 1;
-
-            return nextLabel - 1;
+            var label = nextLabel;
+            reserveLabel(label);
+            return label;
         }
 
         for (index = 0; index < (Array.isArray(existingFields) ? existingFields.length : 0); index += 1) {
@@ -584,10 +598,21 @@
             var fieldLabels;
 
             if (citationItems.length > 0) {
+                fieldLabels = extractNumericCitationLabels(field.Content || (citation.properties && citation.properties.plainCitation) || "");
                 citationItems.forEach(function(item) {
                     var identity = getCitationItemIdentity(item);
+                    var label = fieldLabels.length > 0 ? fieldLabels.shift() : null;
 
                     if (!identity || labelByIdentity[identity] !== undefined) {
+                        if (typeof label === "number" && !isNaN(label)) {
+                            reserveLabel(label);
+                        }
+                        return;
+                    }
+
+                    if (typeof label === "number" && !isNaN(label)) {
+                        reserveLabel(label);
+                        labelByIdentity[identity] = label;
                         return;
                     }
 
