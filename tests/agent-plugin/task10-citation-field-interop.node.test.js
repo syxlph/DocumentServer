@@ -67,6 +67,18 @@ test("zotero field helper rewrites prefixed numeric citations without losing the
         }],
         existingFields
     }), "e.g. [2, p. 23]");
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "see [1, p. 10; 2, p. 20]",
+        citationItems: [{
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }, {
+            id: "NEWER",
+            uri: "http://zotero.org/users/42/items/NEWER"
+        }],
+        existingFields
+    }), "see [2, p. 10; 3, p. 20]");
 });
 
 test("zotero field helper reuses prior numeric labels and assigns new ones by document order", async () => {
@@ -106,7 +118,7 @@ test("zotero field helper reuses prior numeric labels and assigns new ones by do
             uri: "http://zotero.org/users/42/items/NEW"
         }],
         existingFields
-    }), "[1–2]");
+    }), "[1, 2]");
 
     assert.equal(fieldHelper.resolveCitationContent({
         content: "[1–3]",
@@ -139,6 +151,14 @@ test("zotero field helper counts malformed visible numeric fields when assigning
         FieldId: "1",
         Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"broken","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[',
         Content: "see [1]"
+    }, {
+        FieldId: "2",
+        Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"broken-two","properties":{"formattedCitation":"[1; 2]","plainCitation":"[1; 2]","noteIndex":0},"citationItems":[',
+        Content: "[1; 2]"
+    }, {
+        FieldId: "3",
+        Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"broken-three","properties":{"formattedCitation":"[1, p. 10; 2, p. 20]","plainCitation":"[1, p. 10; 2, p. 20]","noteIndex":0},"citationItems":[',
+        Content: "[1, p. 10; 2, p. 20]"
     }];
 
     assert.equal(fieldHelper.resolveCitationContent({
@@ -148,7 +168,7 @@ test("zotero field helper counts malformed visible numeric fields when assigning
             uri: "http://zotero.org/users/42/items/NEW"
         }],
         existingFields: malformedExistingFields
-    }), "[2]");
+    }), "[3]");
 
     assert.equal(fieldHelper.resolveCitationContent({
         content: "see [1]",
@@ -157,7 +177,7 @@ test("zotero field helper counts malformed visible numeric fields when assigning
             uri: "http://zotero.org/users/42/items/NEW"
         }],
         existingFields: malformedExistingFields
-    }), "see [2]");
+    }), "see [3]");
 });
 
 test("zotero executor exposes a native field payload builder that preserves prior citations and item data", async () => {

@@ -290,76 +290,22 @@
         return "";
     }
 
-    function isNumericCitationContent(value) {
-        return !!findNumericCitationLabelSpan(value);
+    function isNumericDigit(value) {
+        return value >= "0" && value <= "9";
     }
 
     function findNumericCitationLabelClusterSpan(value) {
         var text = normalizeString(value);
-        var firstDigit = -1;
-        var cursor;
-        var clusterEnd;
-        var separatorStart;
-        var index;
-        var char;
-
-        for (index = 0; index < text.length; index += 1) {
-            char = text[index];
-
-            if (char >= "0" && char <= "9") {
-                firstDigit = index;
-                break;
-            }
-
-            if ((char >= "A" && char <= "Z") || (char >= "a" && char <= "z")) {
-                return null;
-            }
-        }
-
-        if (firstDigit === -1) {
-            return null;
-        }
-
-        cursor = firstDigit;
-        clusterEnd = firstDigit;
-
-        while (cursor < text.length) {
-            while (cursor < text.length && text[cursor] >= "0" && text[cursor] <= "9") {
-                cursor += 1;
-            }
-
-            clusterEnd = cursor;
-            separatorStart = cursor;
-
-            while (cursor < text.length && /[\s,.;:\/\\\-–—+]/.test(text[cursor])) {
-                cursor += 1;
-            }
-
-            if (cursor < text.length && text[cursor] >= "0" && text[cursor] <= "9") {
-                continue;
-            }
-
-            clusterEnd = separatorStart;
-            break;
-        }
-
-        return {
-            start: firstDigit,
-            end: clusterEnd
-        };
-    }
-
-    function findNumericCitationLabelSpan(value) {
-        var text = normalizeString(value);
+        var candidateSpans = [];
+        var searchRanges = [];
         var openingBracket;
         var closingBracket;
         var bracketEnd;
-        var localSpan;
         var index;
-
-        if (!text) {
-            return null;
-        }
+        var range;
+        var candidate;
+        var firstDigit;
+        var lastDigit;
 
         for (index = 0; index < text.length; index += 1) {
             openingBracket = text[index];
@@ -375,22 +321,121 @@
                 continue;
             }
 
-            localSpan = findNumericCitationLabelClusterSpan(text.slice(index + 1, bracketEnd));
+            searchRanges.push({
+                start: index + 1,
+                end: bracketEnd
+            });
+        }
 
-            if (localSpan) {
-                return {
-                    start: index + 1 + localSpan.start,
-                    end: index + 1 + localSpan.end
-                };
+        searchRanges.push({
+            start: 0,
+            end: text.length
+        });
+
+        for (index = 0; index < searchRanges.length; index += 1) {
+            range = searchRanges[index];
+            candidate = text.slice(range.start, range.end).trim();
+
+            if (!candidate || candidate.replace(/[0-9\s,;:\/\\\-–—+]+/g, "") !== "") {
+                continue;
+            }
+
+            firstDigit = -1;
+            lastDigit = -1;
+
+            for (var cursor = 0; cursor < candidate.length; cursor += 1) {
+                if (!isNumericDigit(candidate[cursor])) {
+                    continue;
+                }
+
+                if (firstDigit === -1) {
+                    firstDigit = cursor;
+                }
+
+                lastDigit = cursor;
+            }
+
+            if (firstDigit !== -1 && lastDigit !== -1) {
+                candidateSpans.push({
+                    start: range.start + firstDigit,
+                    end: range.start + lastDigit + 1
+                });
             }
         }
 
-        return findNumericCitationLabelClusterSpan(text);
+        if (!candidateSpans.length) {
+            return null;
+        }
+
+        return candidateSpans[0];
+    }
+
+    function findNumericCitationLabelOccurrences(value) {
+        var text = normalizeString(value);
+        var spans = [];
+        var index;
+        var start;
+        var previousIndex;
+        var previousChar;
+
+        if (!text) {
+            return spans;
+        }
+
+        for (index = 0; index < text.length; index += 1) {
+            if (!isNumericDigit(text[index])) {
+                continue;
+            }
+
+            if (index > 0 && isNumericDigit(text[index - 1])) {
+                continue;
+            }
+
+            previousIndex = index - 1;
+            while (previousIndex >= 0 && /\s/.test(text[previousIndex])) {
+                previousIndex -= 1;
+            }
+
+            previousChar = previousIndex >= 0 ? text[previousIndex] : "";
+
+            if (previousChar && previousChar !== "[" && previousChar !== "(" && previousChar !== "{" && previousChar !== "," && previousChar !== ";") {
+                continue;
+            }
+
+            start = index;
+            while (index < text.length && isNumericDigit(text[index])) {
+                index += 1;
+            }
+
+            spans.push({
+                start: start,
+                end: index
+            });
+
+            index -= 1;
+        }
+
+        return spans;
+    }
+
+    function findNumericCitationLabelSpan(value) {
+        var occurrences = findNumericCitationLabelOccurrences(value);
+
+        if (occurrences.length > 0) {
+            return occurrences[0];
+        }
+
+        return findNumericCitationLabelClusterSpan(value);
+    }
+
+    function isNumericCitationContent(value) {
+        return findNumericCitationLabelOccurrences(value).length > 0 || !!findNumericCitationLabelClusterSpan(value);
     }
 
     function extractNumericCitationLabels(value) {
         var text = normalizeString(value);
-        var labelSpan = findNumericCitationLabelSpan(text);
+        var occurrences = findNumericCitationLabelOccurrences(text);
+        var labelSpan = findNumericCitationLabelClusterSpan(text);
         var labelText;
         var labels = [];
         var pieces;
@@ -401,12 +446,24 @@
         var end;
         var current;
 
+        if (occurrences.length > 1) {
+            occurrences.forEach(function(span) {
+                var label = parseInt(text.slice(span.start, span.end), 10);
+
+                if (!isNaN(label)) {
+                    labels.push(label);
+                }
+            });
+
+            return labels;
+        }
+
         if (!labelSpan) {
             return labels;
         }
 
         labelText = text.slice(labelSpan.start, labelSpan.end);
-        pieces = labelText.split(",");
+        pieces = labelText.split(/[;,]/);
 
         for (index = 0; index < pieces.length; index += 1) {
             piece = pieces[index].trim();
@@ -568,6 +625,21 @@
         return labels;
     }
 
+    function replaceCitationLabelOccurrences(template, occurrences, labels) {
+        var result = "";
+        var lastIndex = 0;
+        var index;
+
+        for (index = 0; index < occurrences.length; index += 1) {
+            result += template.slice(lastIndex, occurrences[index].start);
+            result += String(labels[index]);
+            lastIndex = occurrences[index].end;
+        }
+
+        result += template.slice(lastIndex);
+        return result;
+    }
+
     function resolveCitationContent(content, citationItems, existingFields) {
         if (content && typeof content === "object" && !Array.isArray(content) && (
             content.content !== undefined ||
@@ -580,6 +652,7 @@
         var template = normalizeString(content);
         var labels;
         var labelSpan;
+        var labelOccurrences;
         var labelCluster;
 
         labels = assignCitationLabels(existingFields, citationItems);
@@ -588,7 +661,12 @@
             return template;
         }
 
-        labelSpan = findNumericCitationLabelSpan(template);
+        labelOccurrences = findNumericCitationLabelOccurrences(template);
+        if (labelOccurrences.length === labels.length && labelOccurrences.length > 0) {
+            return replaceCitationLabelOccurrences(template, labelOccurrences, labels);
+        }
+
+        labelSpan = findNumericCitationLabelClusterSpan(template);
         if (!labelSpan) {
             return template;
         }
