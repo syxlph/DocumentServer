@@ -22,6 +22,7 @@ test("agent plugin page loads vendored Zotero in the same top-level page before 
 
 test("agent plugin page avoids module-only bootstrap files and loads the classic vendored bridge path", async () => {
     const html = fs.readFileSync(path.join(pluginRoot, "index.html"), "utf8");
+    const bootstrapIndex = html.indexOf("scripts/zotero-bootstrap.js");
 
     assert.match(html, /vendor\/zotero\/dist\/styles\.css/);
     assert.match(html, /vendor\/zotero\/dist\/citeproc_commonjs\.js/);
@@ -31,10 +32,18 @@ test("agent plugin page avoids module-only bootstrap files and loads the classic
     assert.match(html, /scripts\/zotero-bootstrap\.js/);
     assert.doesNotMatch(html, /type="module"/);
     assert.doesNotMatch(html, /zotero-module-bootstrap\.mjs/);
-    assert.ok(
-        html.indexOf("scripts/zotero-modern-loader.js") < html.indexOf("scripts/zotero-bootstrap.js"),
-        "expected vendored loader to be available before bootstrap runs"
-    );
+    assert.notEqual(bootstrapIndex, -1, "expected classic bootstrap script to be present");
+
+    for (const scriptPath of [
+        "scripts/zotero-modern-loader.js",
+        "scripts/zotero-native-adapter.js",
+        "scripts/agent.js"
+    ]) {
+        const scriptIndex = html.indexOf(scriptPath);
+
+        assert.notEqual(scriptIndex, -1, `expected ${scriptPath} to be present`);
+        assert.ok(scriptIndex < bootstrapIndex, `expected ${scriptPath} to load before bootstrap runs`);
+    }
 });
 
 test("classic vendored loader exposes module-scoped Zotero symbols on a stable global", async () => {
@@ -45,15 +54,18 @@ test("classic vendored loader exposes module-scoped Zotero symbols on a stable g
         "var ZoteroApiChecker = { checkStatus: function() { return Promise.resolve({ desktop: true, hasPermission: true }); } };",
         "var LocalesManager = function LocalesManager() {};",
         "var CslStylesManager = function CslStylesManager() {};",
-        "var CitationService = function CitationService() {};",
-        "window.__bundleExecuted = (window.__bundleExecuted || 0) + 1;"
+        "var CitationService = function CitationService() {};"
     ].join("\n");
 
     const exports = await loadVendoredZotero(root, {sourceText});
+    const vendoredZotero = root.OnlyOfficeAgentVendoredZotero;
 
-    assert.equal(root.__bundleExecuted, 1);
-    assert.equal(root.OnlyOfficeAgentVendoredZotero, exports);
-    assert.equal(typeof exports.ZoteroSdk, "function");
+    assert.equal(vendoredZotero, exports);
+    assert.equal(typeof vendoredZotero.ZoteroApiChecker, "object");
+    assert.equal(typeof vendoredZotero.ZoteroSdk, "function");
+    assert.equal(typeof vendoredZotero.LocalesManager, "function");
+    assert.equal(typeof vendoredZotero.CslStylesManager, "function");
+    assert.equal(typeof vendoredZotero.CitationService, "function");
 });
 
 test("modern bootstrap module loads the vendored loader before the adapter and bridge", async () => {
