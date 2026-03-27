@@ -41,6 +41,34 @@ test("zotero field helper normalizes native Zotero field values from GetAllAddin
     });
 });
 
+test("zotero field helper rewrites prefixed numeric citations without losing the surrounding prose", async () => {
+    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
+    const nativeFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
+    const existingFields = [{
+        FieldId: "1",
+        Value: nativeFieldValue,
+        Content: "[1]"
+    }];
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "see [1]",
+        citationItems: [{
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }],
+        existingFields
+    }), "see [2]");
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "e.g. [1, p. 23]",
+        citationItems: [{
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }],
+        existingFields
+    }), "e.g. [2, p. 23]");
+});
+
 test("zotero field helper reuses prior numeric labels and assigns new ones by document order", async () => {
     const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
     const nativeFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
@@ -103,6 +131,33 @@ test("zotero field helper reuses prior numeric labels and assigns new ones by do
         }],
         existingFields
     }), "[2, p. 23]");
+});
+
+test("zotero field helper counts malformed visible numeric fields when assigning the next label", async () => {
+    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
+    const malformedExistingFields = [{
+        FieldId: "1",
+        Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"broken","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[',
+        Content: "see [1]"
+    }];
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "[1]",
+        citationItems: [{
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }],
+        existingFields: malformedExistingFields
+    }), "[2]");
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "see [1]",
+        citationItems: [{
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }],
+        existingFields: malformedExistingFields
+    }), "see [2]");
 });
 
 test("zotero executor exposes a native field payload builder that preserves prior citations and item data", async () => {

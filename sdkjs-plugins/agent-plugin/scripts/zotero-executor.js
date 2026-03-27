@@ -57,6 +57,96 @@
         return entry;
     }
 
+    function getRequestItemKey(item) {
+        if (!item || item.key === undefined || item.key === null || String(item.key).length < 1) {
+            return "";
+        }
+
+        return String(item.key);
+    }
+
+    function getEntryKey(entry) {
+        if (!entry) {
+            return "";
+        }
+
+        if (entry.key !== undefined && entry.key !== null && String(entry.key).length > 0) {
+            return String(entry.key);
+        }
+
+        if (entry.data && entry.data.key !== undefined && entry.data.key !== null && String(entry.data.key).length > 0) {
+            return String(entry.data.key);
+        }
+
+        if (entry.meta && entry.meta.key !== undefined && entry.meta.key !== null && String(entry.meta.key).length > 0) {
+            return String(entry.meta.key);
+        }
+
+        return "";
+    }
+
+    function buildRequestItemMatcher(items) {
+        var requestItems = Array.isArray(items) ? items : [];
+        var requestItemsByKey = Object.create(null);
+        var consumedIndexes = Object.create(null);
+        var index;
+
+        requestItems.forEach(function(item, itemIndex) {
+            var key = getRequestItemKey(item);
+
+            if (!key) {
+                return;
+            }
+
+            if (!requestItemsByKey[key]) {
+                requestItemsByKey[key] = [];
+            }
+
+            requestItemsByKey[key].push({
+                index: itemIndex,
+                item: item
+            });
+        });
+
+        function takeFirstUnconsumedRequestItem() {
+            for (index = 0; index < requestItems.length; index += 1) {
+                if (consumedIndexes[index]) {
+                    continue;
+                }
+
+                consumedIndexes[index] = true;
+                return requestItems[index];
+            }
+
+            return null;
+        }
+
+        function takeRequestItemForEntry(entry) {
+            var key = getEntryKey(entry);
+            var queue = key ? requestItemsByKey[key] : null;
+            var candidate;
+
+            if (queue) {
+                while (queue.length) {
+                    candidate = queue.shift();
+
+                    if (consumedIndexes[candidate.index]) {
+                        continue;
+                    }
+
+                    consumedIndexes[candidate.index] = true;
+                    return candidate.item;
+                }
+            }
+
+            return takeFirstUnconsumedRequestItem();
+        }
+
+        return {
+            takeRequestItemForEntry: takeRequestItemForEntry
+        };
+    }
+
     function buildItemUri(settings, item) {
         var libraryId = item && item.libraryId ? String(item.libraryId) : "";
         var key = item && item.key ? String(item.key) : "";
@@ -75,6 +165,7 @@
     function buildCitationItem(entry, requestItem, settings) {
         var itemData = getItemData(entry);
         var uri = "";
+        var normalizedRequestItem = requestItem || {};
         var citationItem;
 
         if (!entry) {
@@ -86,11 +177,13 @@
         } else if (entry.links && entry.links.self && entry.links.self.href) {
             uri = String(entry.links.self.href);
         } else {
-            uri = buildItemUri(settings, requestItem);
+            uri = buildItemUri(settings, normalizedRequestItem.key ? normalizedRequestItem : entry);
         }
 
         citationItem = {
-            id: itemData && itemData.id !== undefined ? itemData.id : (entry.id !== undefined ? entry.id : requestItem.key),
+            id: itemData && itemData.id !== undefined
+                ? itemData.id
+                : (entry.id !== undefined ? entry.id : (normalizedRequestItem.key || entry.key || "")),
             uris: uri ? [uri] : [],
             itemData: itemData
         };
@@ -99,26 +192,26 @@
             citationItem.uri = uri;
         }
 
-        if (requestItem.locator !== undefined) {
-            citationItem.locator = requestItem.locator;
+        if (normalizedRequestItem.locator !== undefined) {
+            citationItem.locator = normalizedRequestItem.locator;
         }
 
-        if (requestItem.label !== undefined) {
-            citationItem.label = requestItem.label;
+        if (normalizedRequestItem.label !== undefined) {
+            citationItem.label = normalizedRequestItem.label;
         }
 
-        if (requestItem.prefix !== undefined) {
-            citationItem.prefix = requestItem.prefix;
+        if (normalizedRequestItem.prefix !== undefined) {
+            citationItem.prefix = normalizedRequestItem.prefix;
         }
 
-        if (requestItem.suffix !== undefined) {
-            citationItem.suffix = requestItem.suffix;
+        if (normalizedRequestItem.suffix !== undefined) {
+            citationItem.suffix = normalizedRequestItem.suffix;
         }
 
-        if (requestItem["suppress-author"] !== undefined) {
-            citationItem["suppress-author"] = !!requestItem["suppress-author"];
-        } else if (requestItem.suppressAuthor !== undefined) {
-            citationItem["suppress-author"] = !!requestItem.suppressAuthor;
+        if (normalizedRequestItem["suppress-author"] !== undefined) {
+            citationItem["suppress-author"] = !!normalizedRequestItem["suppress-author"];
+        } else if (normalizedRequestItem.suppressAuthor !== undefined) {
+            citationItem["suppress-author"] = !!normalizedRequestItem.suppressAuthor;
         }
 
         return citationItem;
@@ -191,9 +284,10 @@
                     return response.json();
                 })
                 .then(function(payload) {
+                    var requestItemMatcher = buildRequestItemMatcher(items);
                     var citations = payload.map(extractCitation).filter(Boolean);
-                    var citationItems = payload.map(function(entry, index) {
-                        return buildCitationItem(entry, items[index] || {}, settings);
+                    var citationItems = payload.map(function(entry) {
+                        return buildCitationItem(entry, requestItemMatcher.takeRequestItemForEntry(entry), settings);
                     }).filter(Boolean);
 
                     if (citations.length < 1) {

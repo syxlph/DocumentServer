@@ -129,6 +129,112 @@ test("vendored Zotero executor fetches citation text and item data for native Zo
     }]);
 });
 
+test("vendored Zotero executor aligns reordered and duplicated Zotero response rows to the matching request items", async () => {
+    const {createZoteroExecutor} = require(path.join(pluginRoot, "scripts", "zotero-executor.js"));
+    const storage = new Map([
+        ["zoteroUserId", "42"],
+        ["zoteroApiKey", "secret-key"],
+        ["zoteroStyleId", "ieee"]
+    ]);
+    let requestUrl = null;
+    const executor = createZoteroExecutor({
+        storage: {
+            getItem(key) {
+                return storage.has(key) ? storage.get(key) : null;
+            }
+        },
+        fetch(url) {
+            requestUrl = new URL(url);
+
+            return Promise.resolve({
+                ok: true,
+                json() {
+                    return Promise.resolve([{
+                        key: "B",
+                        citation: "[2]",
+                        data: {
+                            id: 202,
+                            type: "article-journal",
+                            title: "B article"
+                        }
+                    }, {
+                        key: "A",
+                        citation: "[1]",
+                        data: {
+                            id: 101,
+                            type: "article-journal",
+                            title: "A article first"
+                        }
+                    }, {
+                        key: "A",
+                        citation: "[1]",
+                        data: {
+                            id: 102,
+                            type: "article-journal",
+                            title: "A article second"
+                        }
+                    }]);
+                }
+            });
+        }
+    });
+
+    const result = await executor.formatCitation([{
+        key: "A",
+        library: "user",
+        locator: "11",
+        prefix: "see "
+    }, {
+        key: "B",
+        library: "user",
+        locator: "22",
+        suffix: ", p. 5"
+    }, {
+        key: "A",
+        library: "user",
+        locator: "33",
+        prefix: "e.g. "
+    }], {
+        style: "ieee"
+    });
+
+    assert.equal(requestUrl.searchParams.get("itemKey"), "A,B,A");
+    assert.deepEqual(result.citationItems, [{
+        id: 202,
+        uris: ["http://zotero.org/users/42/items/B"],
+        uri: "http://zotero.org/users/42/items/B",
+        itemData: {
+            id: 202,
+            type: "article-journal",
+            title: "B article"
+        },
+        locator: "22",
+        suffix: ", p. 5"
+    }, {
+        id: 101,
+        uris: ["http://zotero.org/users/42/items/A"],
+        uri: "http://zotero.org/users/42/items/A",
+        itemData: {
+            id: 101,
+            type: "article-journal",
+            title: "A article first"
+        },
+        locator: "11",
+        prefix: "see "
+    }, {
+        id: 102,
+        uris: ["http://zotero.org/users/42/items/A"],
+        uri: "http://zotero.org/users/42/items/A",
+        itemData: {
+            id: 102,
+            type: "article-journal",
+            title: "A article second"
+        },
+        locator: "33",
+        prefix: "e.g. "
+    }]);
+});
+
 test("agent plugin page loads the Zotero executor before bootstrapping the bridge", async () => {
     const fs = require("node:fs");
     const html = fs.readFileSync(path.join(pluginRoot, "index.html"), "utf8");

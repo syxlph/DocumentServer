@@ -291,38 +291,10 @@
     }
 
     function isNumericCitationContent(value) {
-        var text = normalizeString(value).trim();
-        var firstDigit = -1;
-        var firstLetter = -1;
-        var index;
-        var char;
-
-        if (!text) {
-            return false;
-        }
-
-        for (index = 0; index < text.length; index += 1) {
-            char = text[index];
-
-            if (char >= "0" && char <= "9") {
-                firstDigit = index;
-                break;
-            }
-
-            if ((char >= "A" && char <= "Z") || (char >= "a" && char <= "z")) {
-                firstLetter = index;
-                break;
-            }
-        }
-
-        if (firstDigit === -1) {
-            return false;
-        }
-
-        return firstLetter === -1 || firstDigit < firstLetter;
+        return !!findNumericCitationLabelSpan(value);
     }
 
-    function findNumericCitationLabelSpan(value) {
+    function findNumericCitationLabelClusterSpan(value) {
         var text = normalizeString(value);
         var firstDigit = -1;
         var cursor;
@@ -377,6 +349,103 @@
         };
     }
 
+    function findNumericCitationLabelSpan(value) {
+        var text = normalizeString(value);
+        var openingBracket;
+        var closingBracket;
+        var bracketEnd;
+        var localSpan;
+        var index;
+
+        if (!text) {
+            return null;
+        }
+
+        for (index = 0; index < text.length; index += 1) {
+            openingBracket = text[index];
+
+            if (openingBracket !== "[" && openingBracket !== "(" && openingBracket !== "{") {
+                continue;
+            }
+
+            closingBracket = openingBracket === "[" ? "]" : (openingBracket === "(" ? ")" : "}");
+            bracketEnd = text.indexOf(closingBracket, index + 1);
+
+            if (bracketEnd === -1) {
+                continue;
+            }
+
+            localSpan = findNumericCitationLabelClusterSpan(text.slice(index + 1, bracketEnd));
+
+            if (localSpan) {
+                return {
+                    start: index + 1 + localSpan.start,
+                    end: index + 1 + localSpan.end
+                };
+            }
+        }
+
+        return findNumericCitationLabelClusterSpan(text);
+    }
+
+    function extractNumericCitationLabels(value) {
+        var text = normalizeString(value);
+        var labelSpan = findNumericCitationLabelSpan(text);
+        var labelText;
+        var labels = [];
+        var pieces;
+        var index;
+        var piece;
+        var rangeMatch;
+        var start;
+        var end;
+        var current;
+
+        if (!labelSpan) {
+            return labels;
+        }
+
+        labelText = text.slice(labelSpan.start, labelSpan.end);
+        pieces = labelText.split(",");
+
+        for (index = 0; index < pieces.length; index += 1) {
+            piece = pieces[index].trim();
+
+            if (!piece) {
+                continue;
+            }
+
+            rangeMatch = piece.match(/^(\d+)\s*[–—-]\s*(\d+)$/);
+
+            if (rangeMatch) {
+                start = parseInt(rangeMatch[1], 10);
+                end = parseInt(rangeMatch[2], 10);
+
+                if (!isNaN(start) && !isNaN(end)) {
+                    if (start > end) {
+                        current = start;
+                        start = end;
+                        end = current;
+                    }
+
+                    for (current = start; current <= end; current += 1) {
+                        labels.push(current);
+                    }
+                }
+
+                continue;
+            }
+
+            current = parseInt(piece, 10);
+
+            if (!isNaN(current)) {
+                labels.push(current);
+            }
+        }
+
+        return labels;
+    }
+
     function buildNumericCitationLabelCluster(labels) {
         var normalizedLabels = [];
         var sortedLabels;
@@ -426,28 +495,59 @@
 
     function buildCitationLabelState(existingFields) {
         var labelByIdentity = Object.create(null);
+        var reservedLabels = Object.create(null);
         var nextLabel = 1;
+        var index;
 
-        normalizeAddinFields(existingFields).forEach(function(field) {
-            var citationItems = field && field.citation && Array.isArray(field.citation.citationItems)
-                ? field.citation.citationItems
-                : [];
+        function reserveLabel(label) {
+            if (typeof label !== "number" || isNaN(label) || label < 1) {
+                return;
+            }
 
-            citationItems.forEach(function(item) {
-                var identity = getCitationItemIdentity(item);
+            reservedLabels[label] = true;
+        }
 
-                if (!identity || labelByIdentity[identity] !== undefined) {
-                    return;
-                }
-
-                labelByIdentity[identity] = nextLabel;
+        function takeNextLabel() {
+            while (reservedLabels[nextLabel]) {
                 nextLabel += 1;
-            });
-        });
+            }
+
+            reserveLabel(nextLabel);
+            nextLabel += 1;
+
+            return nextLabel - 1;
+        }
+
+        for (index = 0; index < (Array.isArray(existingFields) ? existingFields.length : 0); index += 1) {
+            var field = existingFields[index] || {};
+            var citation = field.citation || parseCitationFieldValue(field.Value);
+            var citationItems = citation && Array.isArray(citation.citationItems)
+                ? citation.citationItems
+                : [];
+            var fieldLabels;
+
+            if (citationItems.length > 0) {
+                citationItems.forEach(function(item) {
+                    var identity = getCitationItemIdentity(item);
+
+                    if (!identity || labelByIdentity[identity] !== undefined) {
+                        return;
+                    }
+
+                    labelByIdentity[identity] = takeNextLabel();
+                });
+            } else {
+                fieldLabels = extractNumericCitationLabels(field.Content);
+                fieldLabels.forEach(function(label) {
+                    reserveLabel(label);
+                });
+            }
+        }
 
         return {
             labelByIdentity: labelByIdentity,
-            nextLabel: nextLabel
+            nextLabel: nextLabel,
+            takeNextLabel: takeNextLabel
         };
     }
 
@@ -459,8 +559,7 @@
             var identity = getCitationItemIdentity(item) || "item:" + index;
 
             if (state.labelByIdentity[identity] === undefined) {
-                state.labelByIdentity[identity] = state.nextLabel;
-                state.nextLabel += 1;
+                state.labelByIdentity[identity] = state.takeNextLabel();
             }
 
             labels.push(state.labelByIdentity[identity]);
@@ -482,10 +581,6 @@
         var labels;
         var labelSpan;
         var labelCluster;
-
-        if (!isNumericCitationContent(template)) {
-            return template;
-        }
 
         labels = assignCitationLabels(existingFields, citationItems);
 
@@ -510,6 +605,7 @@
         var citation = options && options.citation ? options.citation : {};
         var items = options && options.items ? options.items : [];
         var existingFields = normalizeAddinFields(options && options.existingFields);
+        var rawExistingFields = options && options.existingFields;
         var content = normalizeString(
             options && options.content !== undefined
                 ? options.content
@@ -523,7 +619,7 @@
             : ((citation.properties && typeof citation.properties.noteIndex === "number")
                 ? citation.properties.noteIndex
                 : 0);
-        var resolvedContent = resolveCitationContent(content, citationItems, existingFields);
+        var resolvedContent = resolveCitationContent(content, citationItems, rawExistingFields);
 
         if (!citationObject) {
             citationObject = {
