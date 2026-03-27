@@ -182,6 +182,24 @@ test("zotero field helper preserves visible sparse labels from existing native f
     }), "[8]");
 });
 
+test("zotero field helper treats multi-item existing fields conservatively when visible label order is ambiguous", async () => {
+    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
+    const existingFields = fieldHelper.normalizeAddinFields([{
+        FieldId: "1",
+        Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1, 2]","plainCitation":"[1, 2]","noteIndex":0},"citationItems":[{"id":"B","uris":["http://zotero.org/users/42/items/B"],"uri":"http://zotero.org/users/42/items/B","itemData":{"id":"B","type":"article-journal","title":"Second"}},{"id":"A","uris":["http://zotero.org/users/42/items/A"],"uri":"http://zotero.org/users/42/items/A","itemData":{"id":"A","type":"article-journal","title":"First"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}',
+        Content: "[1, 2]"
+    }]);
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "[1]",
+        citationItems: [{
+            id: "A",
+            uri: "http://zotero.org/users/42/items/A"
+        }],
+        existingFields
+    }), "[3]");
+});
+
 test("zotero field helper counts malformed visible numeric fields when assigning the next label", async () => {
     const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
     const malformedExistingFields = [{

@@ -599,6 +599,13 @@
 
             if (citationItems.length > 0) {
                 fieldLabels = extractNumericCitationLabels(field.Content || (citation.properties && citation.properties.plainCitation) || "");
+                if (citationItems.length > 1) {
+                    fieldLabels.forEach(function(label) {
+                        reserveLabel(label);
+                    });
+                    continue;
+                }
+
                 citationItems.forEach(function(item) {
                     var identity = getCitationItemIdentity(item);
                     var label = fieldLabels.length > 0 ? fieldLabels.shift() : null;
@@ -683,6 +690,10 @@
         labels = assignCitationLabels(existingFields, citationItems);
 
         if (!labels.length) {
+            return template;
+        }
+
+        if (labels.length === 1 && labels[0] >= 1000 && template.replace(/[0-9\s\[\]\(\)\{\}]/g, "") === "") {
             return template;
         }
 
