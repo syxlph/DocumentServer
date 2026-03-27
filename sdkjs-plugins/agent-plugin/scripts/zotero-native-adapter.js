@@ -367,7 +367,7 @@
             var effectiveStyleId = requestOptions && requestOptions.style ? requestOptions.style : (settings.styleId || currentContext.styleManager.getLastUsedStyleIdOrDefault());
             var effectiveLanguage = requestOptions && requestOptions.locale ? requestOptions.locale : (settings.language || currentContext.localesManager.getLastUsedLanguage());
             var effectiveNotesStyle = requestOptions && requestOptions.notesStyle ? requestOptions.notesStyle : (settings.notesStyle || currentContext.styleManager.getLastUsedNotesStyle());
-            var effectiveFormat = requestOptions && requestOptions.format ? requestOptions.format : (settings.format || currentContext.styleManager.getLastUsedFormat());
+            var effectiveFormat = requestOptions && requestOptions.format ? requestOptions.format : null;
 
             return resolveNativeAccess(currentRoot, currentContext.sdk).then(function() {
                 // These request-scoped overrides keep the adapter aligned with the caller's
@@ -386,6 +386,10 @@
                     var styleResult = results[0];
 
                     rememberLoadedStyle(currentContext.styleManager, effectiveStyleId, styleResult);
+
+                    if (!effectiveFormat) {
+                        effectiveFormat = styleResult && styleResult.styleFormat ? styleResult.styleFormat : (settings.format || currentContext.styleManager.getLastUsedFormat());
+                    }
 
                     currentContext.citationService.setNotesStyle(effectiveNotesStyle);
                     currentContext.citationService.setStyleFormat(effectiveFormat);
