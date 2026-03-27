@@ -223,20 +223,6 @@
         stylesManager.setDesktopApiAvailable(false);
     }
 
-    function rememberLoadedStyle(styleManager, styleId, styleResult) {
-        if (!styleManager || !styleId || !styleResult || typeof styleResult.content !== "string" || styleResult.content.length < 1) {
-            return;
-        }
-
-        if (typeof styleManager.cached === "function" && styleManager.cached(styleId)) {
-            return;
-        }
-
-        if (styleManager._cache && typeof styleManager._cache === "object") {
-            styleManager._cache[styleId] = styleResult.content;
-        }
-    }
-
     function readAddinZoteroFields(documentService) {
         if (!documentService || typeof documentService.getAddinZoteroFields !== "function") {
             return Promise.resolve([]);
@@ -361,48 +347,25 @@
             return context;
         }
 
-        function ensureReady(requestOptions) {
+        function ensureReady() {
             var currentContext = getOrCreateContext();
             var settings = readNativeSettings(storage);
-            var effectiveStyleId = requestOptions && requestOptions.style ? requestOptions.style : (settings.styleId || currentContext.styleManager.getLastUsedStyleIdOrDefault());
-            var effectiveLanguage = requestOptions && requestOptions.locale ? requestOptions.locale : (settings.language || currentContext.localesManager.getLastUsedLanguage());
-            var effectiveNotesStyle = requestOptions && requestOptions.notesStyle ? requestOptions.notesStyle : (settings.notesStyle || currentContext.styleManager.getLastUsedNotesStyle());
-            var effectiveFormat = requestOptions && requestOptions.format ? requestOptions.format : null;
+            var effectiveStyleId = settings.styleId || currentContext.styleManager.getLastUsedStyleIdOrDefault();
+            var effectiveLanguage = settings.language || currentContext.localesManager.getLastUsedLanguage();
+            var effectiveNotesStyle = settings.notesStyle || currentContext.styleManager.getLastUsedNotesStyle();
+            var effectiveFormat = settings.format || currentContext.styleManager.getLastUsedFormat();
 
             return resolveNativeAccess(currentRoot, currentContext.sdk).then(function() {
-                // These request-scoped overrides keep the adapter aligned with the caller's
-                // requested style/locale without rewriting Zotero's persisted browser state.
-                currentContext.styleManager.getLastUsedStyleIdOrDefault = function() {
-                    return effectiveStyleId;
-                };
-                currentContext.localesManager.getLastUsedLanguage = function() {
-                    return effectiveLanguage;
-                };
-
                 return Promise.all([
-                    currentContext.styleManager.getStyle(effectiveStyleId, false),
+                    currentContext.styleManager.getStyle(effectiveStyleId, true),
                     currentContext.localesManager.loadLocale(effectiveLanguage)
                 ]).then(function(results) {
                     var styleResult = results[0];
-                    var effectiveContainBibliography = null;
 
-                    rememberLoadedStyle(currentContext.styleManager, effectiveStyleId, styleResult);
-
-                    if (!effectiveFormat) {
-                        effectiveFormat = styleResult && styleResult.styleFormat ? styleResult.styleFormat : (settings.format || currentContext.styleManager.getLastUsedFormat());
+                    if (!settings.format && styleResult && styleResult.styleFormat) {
+                        effectiveFormat = styleResult.styleFormat;
                     }
 
-                    if (styleResult && typeof styleResult.content === "string") {
-                        effectiveContainBibliography = styleResult.content.indexOf("<bibliography") > -1;
-                    } else if (typeof currentContext.styleManager.isLastUsedStyleContainBibliography === "function") {
-                        effectiveContainBibliography = currentContext.styleManager.isLastUsedStyleContainBibliography();
-                    }
-
-                    if (effectiveContainBibliography !== null) {
-                        currentContext.styleManager.isLastUsedStyleContainBibliography = function() {
-                            return effectiveContainBibliography;
-                        };
-                    }
                     currentContext.citationService.setNotesStyle(effectiveNotesStyle);
                     currentContext.citationService.setStyleFormat(effectiveFormat);
 
@@ -484,7 +447,7 @@
         return {
             insertCitation: function(message) {
                 return getContext().then(function(context) {
-                    return context.ensureReady(message && message.options ? message.options : {}).then(function(settings) {
+                    return context.ensureReady().then(function(settings) {
                         var nativeItems = createNativeCitationItems(message && message.items ? message.items : [], {
                             userId: settings && settings.userId
                         });
