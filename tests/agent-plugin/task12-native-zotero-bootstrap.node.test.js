@@ -56,23 +56,15 @@ test("classic vendored loader exposes module-scoped Zotero symbols on a stable g
         "var CslStylesManager = function CslStylesManager() {};",
         "var CitationService = function CitationService() {};"
     ].join("\n");
-    let requestedUrl = null;
 
     const exports = await loadVendoredZotero(root, {
-        bundleUrl: "https://example.test/vendor/zotero/dist/bundle.modern.js",
         fetch(url) {
-            requestedUrl = url;
-            return Promise.resolve({
-                text() {
-                    return Promise.resolve(sourceText);
-                }
-            });
+            throw new Error(`unexpected fetch for ${url}`);
         },
         sourceText
     });
     const vendoredZotero = root.OnlyOfficeAgentVendoredZotero;
 
-    assert.equal(requestedUrl, "https://example.test/vendor/zotero/dist/bundle.modern.js");
     assert.equal(vendoredZotero, exports);
     assert.equal(typeof vendoredZotero.ZoteroApiChecker, "object");
     assert.equal(typeof vendoredZotero.ZoteroSdk, "function");

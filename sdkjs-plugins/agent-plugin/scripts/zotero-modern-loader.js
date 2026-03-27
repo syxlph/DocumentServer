@@ -50,8 +50,11 @@
             return targetRoot[VENDORED_SCOPE_KEY];
         }
 
-        var response = await getFetchImpl(targetRoot, options)(getBundleUrl(targetRoot, options));
-        var sourceText = options && typeof options.sourceText === "string" ? options.sourceText : await response.text();
+        var sourceText = options && typeof options.sourceText === "string" ? options.sourceText : null;
+        if (sourceText === null) {
+            var response = await getFetchImpl(targetRoot, options)(getBundleUrl(targetRoot, options));
+            sourceText = await response.text();
+        }
         var vendoredScope = evaluateBundleIntoScope(targetRoot, sourceText);
 
         targetRoot[VENDORED_SCOPE_KEY] = vendoredScope;
