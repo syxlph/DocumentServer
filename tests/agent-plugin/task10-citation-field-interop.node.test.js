@@ -78,7 +78,31 @@ test("zotero field helper reuses prior numeric labels and assigns new ones by do
             uri: "http://zotero.org/users/42/items/NEW"
         }],
         existingFields
-    }), "[1, 2]");
+    }), "[1–2]");
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "[1–3]",
+        citationItems: [{
+            id: "OLDER",
+            uri: "http://zotero.org/users/42/items/OLDER"
+        }, {
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }, {
+            id: "NEWER",
+            uri: "http://zotero.org/users/42/items/NEWER"
+        }],
+        existingFields
+    }), "[1–3]");
+
+    assert.equal(fieldHelper.resolveCitationContent({
+        content: "[1, p. 23]",
+        citationItems: [{
+            id: "NEW",
+            uri: "http://zotero.org/users/42/items/NEW"
+        }],
+        existingFields
+    }), "[2, p. 23]");
 });
 
 test("zotero executor exposes a native field payload builder that preserves prior citations and item data", async () => {

@@ -292,12 +292,136 @@
 
     function isNumericCitationContent(value) {
         var text = normalizeString(value).trim();
+        var firstDigit = -1;
+        var firstLetter = -1;
+        var index;
+        var char;
 
         if (!text) {
             return false;
         }
 
-        return text.replace(/[0-9\s\[\]\(\)\{\},.;:\/\\\-–—+]+/g, "") === "";
+        for (index = 0; index < text.length; index += 1) {
+            char = text[index];
+
+            if (char >= "0" && char <= "9") {
+                firstDigit = index;
+                break;
+            }
+
+            if ((char >= "A" && char <= "Z") || (char >= "a" && char <= "z")) {
+                firstLetter = index;
+                break;
+            }
+        }
+
+        if (firstDigit === -1) {
+            return false;
+        }
+
+        return firstLetter === -1 || firstDigit < firstLetter;
+    }
+
+    function findNumericCitationLabelSpan(value) {
+        var text = normalizeString(value);
+        var firstDigit = -1;
+        var cursor;
+        var clusterEnd;
+        var separatorStart;
+        var index;
+        var char;
+
+        for (index = 0; index < text.length; index += 1) {
+            char = text[index];
+
+            if (char >= "0" && char <= "9") {
+                firstDigit = index;
+                break;
+            }
+
+            if ((char >= "A" && char <= "Z") || (char >= "a" && char <= "z")) {
+                return null;
+            }
+        }
+
+        if (firstDigit === -1) {
+            return null;
+        }
+
+        cursor = firstDigit;
+        clusterEnd = firstDigit;
+
+        while (cursor < text.length) {
+            while (cursor < text.length && text[cursor] >= "0" && text[cursor] <= "9") {
+                cursor += 1;
+            }
+
+            clusterEnd = cursor;
+            separatorStart = cursor;
+
+            while (cursor < text.length && /[\s,.;:\/\\\-–—+]/.test(text[cursor])) {
+                cursor += 1;
+            }
+
+            if (cursor < text.length && text[cursor] >= "0" && text[cursor] <= "9") {
+                continue;
+            }
+
+            clusterEnd = separatorStart;
+            break;
+        }
+
+        return {
+            start: firstDigit,
+            end: clusterEnd
+        };
+    }
+
+    function buildNumericCitationLabelCluster(labels) {
+        var normalizedLabels = [];
+        var sortedLabels;
+        var parts = [];
+        var start;
+        var previous;
+        var current;
+        var index;
+
+        (Array.isArray(labels) ? labels : []).forEach(function(label) {
+            var number = typeof label === "number" ? label : parseInt(label, 10);
+
+            if (isNaN(number)) {
+                return;
+            }
+
+            normalizedLabels.push(number);
+        });
+
+        if (!normalizedLabels.length) {
+            return "";
+        }
+
+        sortedLabels = normalizedLabels.slice().sort(function(left, right) {
+            return left - right;
+        });
+        start = sortedLabels[0];
+        previous = sortedLabels[0];
+
+        for (index = 1; index < sortedLabels.length; index += 1) {
+            current = sortedLabels[index];
+
+            if (current === previous + 1) {
+                previous = current;
+                continue;
+            }
+
+            parts.push(start === previous ? String(start) : String(start) + "–" + String(previous));
+            start = current;
+            previous = current;
+        }
+
+        parts.push(start === previous ? String(start) : String(start) + "–" + String(previous));
+
+        return parts.join(", ");
     }
 
     function buildCitationLabelState(existingFields) {
@@ -356,7 +480,8 @@
 
         var template = normalizeString(content);
         var labels;
-        var labelIndex = 0;
+        var labelSpan;
+        var labelCluster;
 
         if (!isNumericCitationContent(template)) {
             return template;
@@ -368,13 +493,17 @@
             return template;
         }
 
-        return template.replace(/\d+/g, function(match) {
-            var label = labels[labelIndex];
+        labelSpan = findNumericCitationLabelSpan(template);
+        if (!labelSpan) {
+            return template;
+        }
 
-            labelIndex += 1;
+        labelCluster = buildNumericCitationLabelCluster(labels);
+        if (!labelCluster) {
+            return template;
+        }
 
-            return label !== undefined ? String(label) : match;
-        });
+        return template.slice(0, labelSpan.start) + labelCluster + template.slice(labelSpan.end);
     }
 
     function createCitationFieldPayload(options) {
