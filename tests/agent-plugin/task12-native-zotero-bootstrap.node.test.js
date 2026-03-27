@@ -73,6 +73,36 @@ test("classic vendored loader exposes module-scoped Zotero symbols on a stable g
     assert.equal(typeof vendoredZotero.CitationService, "function");
 });
 
+test("classic vendored loader rejects an invalid fetch response", async () => {
+    const {loadVendoredZotero} = require(path.join(pluginRoot, "scripts", "zotero-modern-loader.js"));
+    const root = {
+        location: {
+            href: "https://example.test/sdkjs-plugins/agent-plugin/index.html"
+        }
+    };
+
+    await assert.rejects(
+        loadVendoredZotero(root, {
+            fetch() {
+                return Promise.resolve({});
+            }
+        }),
+        /received an invalid response/
+    );
+});
+
+test("classic vendored loader rejects missing vendored exports", async () => {
+    const {loadVendoredZotero} = require(path.join(pluginRoot, "scripts", "zotero-modern-loader.js"));
+    const root = {};
+
+    await assert.rejects(
+        loadVendoredZotero(root, {
+            sourceText: "var ZoteroSdk = function ZoteroSdk() {};"
+        }),
+        /could not expose ZoteroApiChecker/
+    );
+});
+
 test("classic bootstrap script loads vendored Zotero before bootstrapping the agent bridge", async () => {
     const bootstrapScript = fs.readFileSync(path.join(pluginRoot, "scripts", "zotero-bootstrap.js"), "utf8");
 
