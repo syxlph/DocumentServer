@@ -1,4 +1,5 @@
 (function(root, factory) {
+    // Deprecated for Task 4: native Zotero in vendor/zotero is now the citation authority.
     var exported = factory(root);
 
     if (typeof module === "object" && module.exports) {

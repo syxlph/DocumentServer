@@ -1,4 +1,5 @@
 (function(root, factory) {
+    // Deprecated for Task 4: retained only for compatibility with older tests/helpers.
     var exported = factory();
 
     if (typeof module === "object" && module.exports) {

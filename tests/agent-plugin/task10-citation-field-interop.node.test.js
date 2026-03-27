@@ -4,320 +4,255 @@ const path = require("node:path");
 
 const pluginRoot = path.join(__dirname, "..", "..", "sdkjs-plugins", "agent-plugin");
 
-test("zotero field helper normalizes native Zotero field values from GetAllAddinFields", async () => {
-    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
-    const nativeFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
+test("native Zotero adapter maps agent citation items onto the vendored CitationService request shape", async () => {
+    const {createNativeCitationItems, NATIVE_STORAGE_KEYS} = require(path.join(pluginRoot, "scripts", "zotero-native-adapter.js"));
+    const mapped = createNativeCitationItems([{
+        key: "ITEM-1",
+        library: "user",
+        prefix: "see ",
+        locator: "12"
+    }, {
+        key: "ITEM-2",
+        library: "group",
+        libraryId: "44",
+        suffix: ", p. 9",
+        label: "page",
+        suppressAuthor: true
+    }], {
+        userId: "42"
+    });
 
-    const normalized = fieldHelper.normalizeAddinFields([{
-        FieldId: 1,
-        Value: nativeFieldValue,
-        Content: "[1]"
-    }]);
-
-    assert.equal(normalized.length, 1);
-    assert.deepEqual(normalized[0], {
-        FieldId: "1",
-        Value: nativeFieldValue,
-        Content: "[1]",
-        citation: {
-            citationID: "older",
-            properties: {
-                formattedCitation: "[1]",
-                plainCitation: "[1]",
-                noteIndex: 0
-            },
-            citationItems: [{
-                id: "OLDER",
-                uris: ["http://zotero.org/users/42/items/OLDER"],
-                uri: "http://zotero.org/users/42/items/OLDER",
-                itemData: {
-                    id: 7,
-                    type: "article-journal",
-                    title: "Older article"
-                }
-            }],
-            schema: "https://github.com/citation-style-language/schema/raw/master/csl-citation.json"
+    assert.deepEqual(mapped, {
+        "agent-citation-0": {
+            id: "ITEM-1",
+            userID: "42",
+            prefix: "see ",
+            locator: "12"
+        },
+        "agent-citation-1": {
+            id: "ITEM-2",
+            groupID: "44",
+            suffix: ", p. 9",
+            label: "page",
+            "suppress-author": true
         }
+    });
+    assert.deepEqual(NATIVE_STORAGE_KEYS, {
+        userId: "zoteroUserId",
+        apiKey: "zoteroApiKey",
+        styleId: "zoteroStyleId",
+        language: "zoteroLang",
+        notesStyle: "zoteroNotesStyleId",
+        format: "zoteroFormatId",
+        containBibliography: "zoteroContainBibliography"
     });
 });
 
-test("zotero field helper rewrites prefixed numeric citations without losing the surrounding prose", async () => {
-    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
-    const nativeFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
-    const existingFields = [{
-        FieldId: "1",
-        Value: nativeFieldValue,
-        Content: "[1]"
-    }];
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "see [1]",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields
-    }), "see [2]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "e.g. [1, p. 23]",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields
-    }), "e.g. [2, p. 23]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "see [1, p. 10; 2, p. 20]",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }, {
-            id: "NEWER",
-            uri: "http://zotero.org/users/42/items/NEWER"
-        }],
-        existingFields
-    }), "see [2, p. 10; 3, p. 20]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "(Doe, 2024)",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields
-    }), "(Doe, 2024)");
-});
-
-test("zotero field helper reuses prior numeric labels and assigns new ones by document order", async () => {
-    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
-    const nativeFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
-    const existingFields = fieldHelper.normalizeAddinFields([{
-        FieldId: "1",
-        Value: nativeFieldValue,
-        Content: "[1]"
-    }]);
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1]",
-        citationItems: [{
-            id: "OLDER",
-            uri: "http://zotero.org/users/42/items/OLDER"
-        }],
-        existingFields
-    }), "[1]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1]",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields
-    }), "[2]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1, 1]",
-        citationItems: [{
-            id: "OLDER",
-            uri: "http://zotero.org/users/42/items/OLDER"
-        }, {
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields
-    }), "[1, 2]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1–3]",
-        citationItems: [{
-            id: "OLDER",
-            uri: "http://zotero.org/users/42/items/OLDER"
-        }, {
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }, {
-            id: "NEWER",
-            uri: "http://zotero.org/users/42/items/NEWER"
-        }],
-        existingFields
-    }), "[1–3]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1, p. 23]",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields
-    }), "[2, p. 23]");
-});
-
-test("zotero field helper preserves visible sparse labels from existing native fields", async () => {
-    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
-    const sparseFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[7]","plainCitation":"[7]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
-    const existingFields = fieldHelper.normalizeAddinFields([{
-        FieldId: "1",
-        Value: sparseFieldValue,
-        Content: "[7]"
-    }]);
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1]",
-        citationItems: [{
-            id: "OLDER",
-            uri: "http://zotero.org/users/42/items/OLDER"
-        }],
-        existingFields
-    }), "[7]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1]",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields
-    }), "[8]");
-});
-
-test("zotero field helper treats multi-item existing fields conservatively when visible label order is ambiguous", async () => {
-    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
-    const existingFields = fieldHelper.normalizeAddinFields([{
-        FieldId: "1",
-        Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1, 2]","plainCitation":"[1, 2]","noteIndex":0},"citationItems":[{"id":"B","uris":["http://zotero.org/users/42/items/B"],"uri":"http://zotero.org/users/42/items/B","itemData":{"id":"B","type":"article-journal","title":"Second"}},{"id":"A","uris":["http://zotero.org/users/42/items/A"],"uri":"http://zotero.org/users/42/items/A","itemData":{"id":"A","type":"article-journal","title":"First"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}',
-        Content: "[1, 2]"
-    }]);
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1]",
-        citationItems: [{
-            id: "A",
-            uri: "http://zotero.org/users/42/items/A"
-        }],
-        existingFields
-    }), "[3]");
-});
-
-test("zotero field helper counts malformed visible numeric fields when assigning the next label", async () => {
-    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
-    const malformedExistingFields = [{
-        FieldId: "1",
-        Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"broken","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[',
-        Content: "see [1]"
-    }, {
-        FieldId: "2",
-        Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"broken-two","properties":{"formattedCitation":"[1; 2]","plainCitation":"[1; 2]","noteIndex":0},"citationItems":[',
-        Content: "[1; 2]"
-    }, {
-        FieldId: "3",
-        Value: 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"broken-three","properties":{"formattedCitation":"[1, p. 10; 2, p. 20]","plainCitation":"[1, p. 10; 2, p. 20]","noteIndex":0},"citationItems":[',
-        Content: "[1, p. 10; 2, p. 20]"
-    }];
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "[1]",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields: malformedExistingFields
-    }), "[3]");
-
-    assert.equal(fieldHelper.resolveCitationContent({
-        content: "see [1]",
-        citationItems: [{
-            id: "NEW",
-            uri: "http://zotero.org/users/42/items/NEW"
-        }],
-        existingFields: malformedExistingFields
-    }), "see [3]");
-});
-
-test("zotero executor exposes a native field payload builder that preserves prior citations and item data", async () => {
-    const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
-    const {createZoteroExecutor} = require(path.join(pluginRoot, "scripts", "zotero-executor.js"));
-    const nativeFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
+test("browser native context reads vendored desktop auth helpers from the modern bootstrap seam without requiring API credentials", async () => {
+    const {createBrowserNativeContext} = require(path.join(pluginRoot, "scripts", "zotero-native-adapter.js"));
+    const calls = [];
     const storage = new Map([
-        ["zoteroUserId", "42"],
-        ["zoteroApiKey", "secret-key"],
-        ["zoteroStyleId", "ieee"]
+        ["zoteroStyleId", "apa"],
+        ["zoteroLang", "en-US"],
+        ["zoteroNotesStyleId", "footnotes"],
+        ["zoteroFormatId", "numeric"]
     ]);
-    const executor = createZoteroExecutor({
-        storage: {
+    const root = {
+        localStorage: {
             getItem(key) {
                 return storage.has(key) ? storage.get(key) : null;
             }
         },
-        fetch(url) {
-            const requestUrl = new URL(url);
+        OnlyOfficeAgentVendoredZotero: {
+            ZoteroSdk: function() {
+                this.hasSettings = function() {
+                    calls.push(["hasSettings"]);
+                    return false;
+                };
+                this.setIsOnlineAvailable = function(value) {
+                    calls.push(["setIsOnlineAvailable", value]);
+                };
+            },
+            LocalesManager: function() {
+                this.getLastUsedLanguage = function() {
+                    return "en-US";
+                };
+                this.loadLocale = function(language) {
+                    calls.push(["loadLocale", language]);
+                    return Promise.resolve();
+                };
+                this.setRestApiAvailable = function(value) {
+                    calls.push(["locales.setRestApiAvailable", value]);
+                };
+                this.setDesktopApiAvailable = function(value) {
+                    calls.push(["locales.setDesktopApiAvailable", value]);
+                };
+            },
+            CslStylesManager: function() {
+                this.getLastUsedStyleIdOrDefault = function() {
+                    return "apa";
+                };
+                this.getLastUsedNotesStyle = function() {
+                    return "footnotes";
+                };
+                this.getLastUsedFormat = function() {
+                    return "numeric";
+                };
+                this.getStyle = function(styleId) {
+                    calls.push(["getStyle", styleId]);
+                    return Promise.resolve();
+                };
+                this.setRestApiAvailable = function(value) {
+                    calls.push(["styles.setRestApiAvailable", value]);
+                };
+                this.setDesktopApiAvailable = function(value) {
+                    calls.push(["styles.setDesktopApiAvailable", value]);
+                };
+            },
+            CitationService: function() {
+                this.setNotesStyle = function(notesStyle) {
+                    calls.push(["setNotesStyle", notesStyle]);
+                };
+                this.setStyleFormat = function(format) {
+                    calls.push(["setStyleFormat", format]);
+                };
+                this.updateCslItems = function() {
+                    return Promise.resolve();
+                };
+                this.insertSelectedCitations = function() {
+                    return Promise.resolve();
+                };
+                this.citationDocService = {
+                    getAddinZoteroFields() {
+                        return Promise.resolve([]);
+                    }
+                };
+            },
+            ZoteroApiChecker: {
+                checkStatus() {
+                    calls.push(["checkStatus"]);
+                    return Promise.resolve({
+                        online: false,
+                        hasKey: false,
+                        desktop: true,
+                        hasPermission: true
+                    });
+                }
+            }
+        }
+    };
+    const context = createBrowserNativeContext({
+        root,
+        storage: root.localStorage
+    });
 
-            assert.equal(requestUrl.searchParams.get("include"), "data,citation");
+    const result = await context.ensureReady({});
 
+    assert.deepEqual(result, {
+        userId: null,
+        apiKey: null,
+        styleId: "apa",
+        language: "en-US",
+        notesStyle: "footnotes",
+        format: "numeric"
+    });
+    assert.equal(calls.some((entry) => entry[0] === "setIsOnlineAvailable" && entry[1] === false), true);
+    assert.equal(calls.some((entry) => entry[0] === "getStyle" && entry[1] === "apa"), true);
+    assert.equal(calls.some((entry) => entry[0] === "loadLocale" && entry[1] === "en-US"), true);
+});
+
+test("native Zotero adapter preloads style and locale, synchronizes native fields, and returns the final inserted citation text after refresh", async () => {
+    const {createNativeZoteroAdapter} = require(path.join(pluginRoot, "scripts", "zotero-native-adapter.js"));
+    const calls = [];
+    const storage = new Map([
+        ["zoteroUserId", "42"],
+        ["zoteroApiKey", "secret-key"],
+        ["zoteroStyleId", "ieee"],
+        ["zoteroLang", "fr-FR"],
+        ["zoteroNotesStyleId", "footnotes"],
+        ["zoteroFormatId", "note"]
+    ]);
+    const nativeAdapter = createNativeZoteroAdapter({
+        root: {
+            localStorage: {
+                getItem(key) {
+                    return storage.has(key) ? storage.get(key) : null;
+                }
+            }
+        },
+        createNativeContext() {
             return Promise.resolve({
-                ok: true,
-                json() {
-                    return Promise.resolve([{
-                        key: "ITEMKEY",
-                        citation: "[1]",
-                        data: {
-                            id: 123,
-                            type: "article-journal",
-                            title: "New article"
-                        }
-                    }]);
+                ensureReady() {
+                    calls.push(["ensureReady"]);
+                    return Promise.resolve({
+                        userId: "42"
+                    });
+                },
+                updateDocumentState(updateAll, insertBibliography) {
+                    calls.push(["updateDocumentState", updateAll, insertBibliography]);
+                    return Promise.resolve();
+                },
+                insertCitation(nativeItems) {
+                    calls.push(["insertCitation", nativeItems]);
+                    return Promise.resolve({
+                        inserted: true,
+                        fieldId: "field-1",
+                        html: "stale [1]"
+                    });
+                },
+                resolveInsertedCitation(result) {
+                    calls.push(["resolveInsertedCitation", result]);
+                    return Promise.resolve({
+                        inserted: true,
+                        fieldId: "field-1",
+                        html: "final [2]"
+                    });
                 }
             });
         }
     });
 
-    const citation = await executor.formatCitation([{
-        key: "ITEMKEY",
-        library: "user",
-        locator: "12"
-    }], {
-        style: "ieee"
-    });
-    const existingFields = [{
-        FieldId: "1",
-        Value: nativeFieldValue,
-        Content: "[1]"
-    }];
-    const expectedContent = fieldHelper.resolveCitationContent({
-        content: citation.content,
-        citationItems: citation.citationItems,
-        existingFields
-    });
-
-    const payload = executor.createCitationFieldPayload({
-        citation: citation,
+    const result = await nativeAdapter.insertCitation({
+        requestId: "req-native-adapter-1",
         items: [{
-            key: "ITEMKEY",
+            key: "ITEM-1",
             library: "user",
+            prefix: "see ",
             locator: "12"
-        }],
-        existingFields,
-        requestId: "req-field-2",
-        settings: {
-            userId: "42"
-        }
+        }]
     });
 
-    assert.match(payload.addinField.Value, /^ZOTERO_ITEM CSL_CITATION /);
-    assert.equal(payload.addinField.Content, expectedContent);
-    assert.equal(payload.citation.properties.formattedCitation, expectedContent);
-    assert.equal(payload.citation.properties.plainCitation, expectedContent);
-    assert.deepEqual(payload.citation.citationItems, [{
-        id: 123,
-        uris: ["http://zotero.org/users/42/items/ITEMKEY"],
-        uri: "http://zotero.org/users/42/items/ITEMKEY",
-        itemData: {
-            id: 123,
-            type: "article-journal",
-            title: "New article"
-        },
-        locator: "12"
-    }]);
-    assert.deepEqual(payload.existingFields, fieldHelper.normalizeAddinFields(existingFields));
+    assert.deepEqual(calls, [[
+        "ensureReady"
+    ], [
+        "updateDocumentState",
+        false,
+        false
+    ], [
+        "insertCitation",
+        {
+            "agent-citation-0": {
+                id: "ITEM-1",
+                userID: "42",
+                prefix: "see ",
+                locator: "12"
+            }
+        }
+    ], [
+        "updateDocumentState",
+        true,
+        false
+    ], [
+        "resolveInsertedCitation",
+        {
+            inserted: true,
+            fieldId: "field-1",
+            html: "stale [1]"
+        }
+    ]]);
+    assert.deepEqual(result, {
+        inserted: true,
+        fieldId: "field-1",
+        html: "final [2]"
+    });
 });

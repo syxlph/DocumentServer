@@ -16,9 +16,9 @@
     var CALL_COMMAND_EXECUTION_FAILED = "CALL_COMMAND_EXECUTION_FAILED";
     var CALL_COMMAND_SERIALIZATION_FAILED = "CALL_COMMAND_SERIALIZATION_FAILED";
     var CALL_COMMAND_RESPONSE_PARSE_FAILED = "CALL_COMMAND_RESPONSE_PARSE_FAILED";
-    var executorFactory = typeof require === "function"
-        ? require("./zotero-executor.js")
-        : (typeof window !== "undefined" ? window.OnlyOfficeAgentZoteroExecutor : null);
+    var nativeAdapterFactory = typeof require === "function"
+        ? require("./zotero-native-adapter.js")
+        : (typeof window !== "undefined" ? window.OnlyOfficeAgentZoteroNativeAdapter : null);
 
     function createBridgeError(code, message, details) {
         return {
@@ -123,7 +123,11 @@
         var plugin = options.plugin;
         var postHostEvent = options.postHostEvent || function() {};
         var logger = options.logger || function() {};
-        var createZoteroExecutor = options.createZoteroExecutor || (executorFactory && executorFactory.createZoteroExecutor);
+        var nativeZoteroAdapter = options.nativeZoteroAdapter
+            || (options.createNativeZoteroAdapter && options.createNativeZoteroAdapter())
+            || (options.root && nativeAdapterFactory && nativeAdapterFactory.createNativeZoteroAdapter
+                ? nativeAdapterFactory.createNativeZoteroAdapter({root: options.root})
+                : null);
         var state = {
             ready: false,
             lastContextMenuInfo: null
@@ -216,37 +220,11 @@
         }
 
         function insertCitation(message) {
-            if (typeof createZoteroExecutor !== "function") {
-                return Promise.reject(createBridgeError("INSERT_CITATION_UNAVAILABLE", "Zotero citation executor is not available"));
+            if (!nativeZoteroAdapter || typeof nativeZoteroAdapter.insertCitation !== "function") {
+                return Promise.reject(createBridgeError("INSERT_CITATION_UNAVAILABLE", "Native Zotero citation adapter is not available"));
             }
 
-            return Promise.resolve().then(function() {
-                var executor = createZoteroExecutor({});
-
-                return Promise.all([
-                    executor.formatCitation(message.items || [], message.options || {}),
-                    executeMethod("GetAllAddinFields", [])
-                ]).then(function(results) {
-                    var result = results[0] || {};
-                    var existingFields = Array.isArray(results[1]) ? results[1] : [];
-                    var payload = executor.createCitationFieldPayload({
-                        citation: result,
-                        items: message.items || [],
-                        existingFields: existingFields,
-                        requestId: message.requestId,
-                        content: result.content || result.html,
-                        settings: result.settings || {},
-                        options: message.options || {}
-                    });
-
-                    return executeMethod("AddAddinField", [payload.addinField]).then(function() {
-                        return {
-                            inserted: true,
-                            html: payload.Content || (payload.addinField && payload.addinField.Content) || (payload.citation && payload.citation.properties && payload.citation.properties.formattedCitation) || result.html
-                        };
-                    });
-                });
-            });
+            return Promise.resolve(nativeZoteroAdapter.insertCitation(message));
         }
 
         function handleRequest(message) {
@@ -344,13 +322,25 @@
 
     function bootstrap(currentRoot) {
         var plugin = currentRoot.Asc && currentRoot.Asc.plugin;
+        var preservedHandlers;
+        var bridgeHandlers;
+        var nativeAdapter;
 
         if (!plugin || plugin.__agentBridge) {
             return plugin && plugin.__agentBridge;
         }
 
+        preservedHandlers = nativeAdapterFactory && nativeAdapterFactory.capturePluginHandlers
+            ? nativeAdapterFactory.capturePluginHandlers(plugin)
+            : {};
+        nativeAdapter = nativeAdapterFactory && nativeAdapterFactory.createNativeZoteroAdapter
+            ? nativeAdapterFactory.createNativeZoteroAdapter({root: currentRoot})
+            : null;
+
         var bridge = createAgentPlugin({
             plugin: plugin,
+            root: currentRoot,
+            nativeZoteroAdapter: nativeAdapter,
             postHostEvent: function(payload) {
                 if (currentRoot.parent && currentRoot.parent.postMessage) {
                     currentRoot.parent.postMessage(JSON.stringify({
@@ -367,18 +357,29 @@
         });
 
         plugin.__agentBridge = bridge;
-        plugin.init = function() {
-            bridge.init();
+
+        bridgeHandlers = {
+            init: function() {
+                return bridge.init();
+            },
+            event_onContextMenuShow: function(info) {
+                return bridge.onContextMenuShow(info);
+            },
+            event_onContextMenuClick: function(itemId) {
+                return bridge.onContextMenuClick(itemId);
+            },
+            onExternalPluginMessage: function(message) {
+                return bridge.onExternalPluginMessage(message);
+            }
         };
-        plugin.event_onContextMenuShow = function(info) {
-            bridge.onContextMenuShow(info);
-        };
-        plugin.event_onContextMenuClick = function(itemId) {
-            bridge.onContextMenuClick(itemId);
-        };
-        plugin.onExternalPluginMessage = function(message) {
-            return bridge.onExternalPluginMessage(message);
-        };
+
+        if (nativeAdapterFactory && nativeAdapterFactory.composePluginHandlers) {
+            nativeAdapterFactory.composePluginHandlers(plugin, preservedHandlers, bridgeHandlers);
+        } else {
+            Object.keys(bridgeHandlers).forEach(function(name) {
+                plugin[name] = bridgeHandlers[name];
+            });
+        }
 
         return bridge;
     }
