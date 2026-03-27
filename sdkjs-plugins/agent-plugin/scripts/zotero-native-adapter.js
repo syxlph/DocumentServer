@@ -384,6 +384,7 @@
                     currentContext.localesManager.loadLocale(effectiveLanguage)
                 ]).then(function(results) {
                     var styleResult = results[0];
+                    var effectiveContainBibliography = null;
 
                     rememberLoadedStyle(currentContext.styleManager, effectiveStyleId, styleResult);
 
@@ -391,6 +392,17 @@
                         effectiveFormat = styleResult && styleResult.styleFormat ? styleResult.styleFormat : (settings.format || currentContext.styleManager.getLastUsedFormat());
                     }
 
+                    if (styleResult && typeof styleResult.content === "string") {
+                        effectiveContainBibliography = styleResult.content.indexOf("<bibliography") > -1;
+                    } else if (typeof currentContext.styleManager.isLastUsedStyleContainBibliography === "function") {
+                        effectiveContainBibliography = currentContext.styleManager.isLastUsedStyleContainBibliography();
+                    }
+
+                    if (effectiveContainBibliography !== null) {
+                        currentContext.styleManager.isLastUsedStyleContainBibliography = function() {
+                            return effectiveContainBibliography;
+                        };
+                    }
                     currentContext.citationService.setNotesStyle(effectiveNotesStyle);
                     currentContext.citationService.setStyleFormat(effectiveFormat);
 
