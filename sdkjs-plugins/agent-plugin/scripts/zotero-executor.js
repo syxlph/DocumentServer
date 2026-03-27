@@ -9,6 +9,9 @@
 })(typeof window !== "undefined" ? window : globalThis, function(root) {
     var DEFAULT_BASE_URL = "https://api.zotero.org/";
     var DEFAULT_LOCALE = "en-US";
+    var fieldFactory = typeof require === "function"
+        ? require("./zotero-field.js")
+        : (typeof window !== "undefined" ? window.OnlyOfficeAgentZoteroField : null);
 
     function getStorageValue(storage, key) {
         if (!storage || typeof storage.getItem !== "function") {
@@ -38,10 +41,15 @@
         return "";
     }
 
+    function stripHtml(value) {
+        return String(value || "").replace(/<[^>]+>/g, "");
+    }
+
     function createZoteroExecutor(options) {
         var fetchImpl = options.fetch || root.fetch;
         var storage = options.storage || root.localStorage;
         var baseUrl = options.baseUrl || DEFAULT_BASE_URL;
+        var createCitationFieldPayload = options.createCitationFieldPayload || (fieldFactory && fieldFactory.createCitationFieldPayload);
 
         function getSettings() {
             var groups = getStorageValue(storage, "zoteroUserGroups");
@@ -108,18 +116,43 @@
 
                     return {
                         html: citations.join("; "),
+                        content: stripHtml(citations.join("; ")),
                         settings: settings
                     };
                 });
         }
 
+        function buildCitationFieldPayload(citation, items, payloadOptions) {
+            if (typeof createCitationFieldPayload !== "function") {
+                throw new Error("Zotero citation field helper is not available");
+            }
+
+            return createCitationFieldPayload({
+                citation: citation,
+                items: items || [],
+                existingFields: payloadOptions && payloadOptions.existingFields,
+                requestId: payloadOptions && payloadOptions.requestId,
+                citationID: payloadOptions && payloadOptions.citationID,
+                noteIndex: payloadOptions && payloadOptions.noteIndex,
+                content: payloadOptions && payloadOptions.content
+            });
+        }
+
         return {
             getSettings: getSettings,
-            formatCitation: formatCitation
+            formatCitation: formatCitation,
+            createCitationFieldPayload: buildCitationFieldPayload
         };
     }
 
     return {
-        createZoteroExecutor: createZoteroExecutor
+        createZoteroExecutor: createZoteroExecutor,
+        createCitationFieldPayload: function(citation, items, options) {
+            var executor = createZoteroExecutor({
+                createCitationFieldPayload: fieldFactory && fieldFactory.createCitationFieldPayload
+            });
+
+            return executor.createCitationFieldPayload(citation, items, options || {});
+        }
     };
 });

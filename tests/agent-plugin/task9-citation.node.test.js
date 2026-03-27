@@ -75,14 +75,19 @@ test("agent plugin page loads the Zotero executor before bootstrapping the bridg
     const fs = require("node:fs");
     const html = fs.readFileSync(path.join(pluginRoot, "index.html"), "utf8");
 
+    assert.match(html, /scripts\/zotero-field\.js/);
     assert.match(html, /scripts\/zotero-executor\.js/);
+    assert.ok(
+        html.indexOf("scripts/zotero-field.js") < html.indexOf("scripts/zotero-executor.js"),
+        "expected zotero-field.js to load before zotero-executor.js"
+    );
     assert.ok(
         html.indexOf("scripts/zotero-executor.js") < html.indexOf("scripts/agent.js"),
         "expected zotero-executor.js to load before agent.js"
     );
 });
 
-test("insertCitation uses the hidden agent runtime to paste a formatted citation", async () => {
+test("insertCitation uses the hidden agent runtime to create a Zotero add-in field", async () => {
     const {createAgentPlugin} = require(path.join(pluginRoot, "scripts", "agent.js"));
     const hostEvents = [];
     const calls = [];
@@ -91,7 +96,15 @@ test("insertCitation uses the hidden agent runtime to paste a formatted citation
         executeMethod(name, args, callback) {
             calls.push([name, args]);
             if (callback) {
-                callback(true);
+                if (name === "GetAllAddinFields") {
+                    callback([{
+                        FieldId: "1",
+                        Value: "existing",
+                        Content: "text"
+                    }]);
+                } else {
+                    callback(true);
+                }
             }
         }
     };
@@ -110,6 +123,26 @@ test("insertCitation uses the hidden agent runtime to paste a formatted citation
                     return Promise.resolve({
                         html: "(Doe, 2024)"
                     });
+                },
+                createCitationFieldPayload(citation, items, options) {
+                    assert.deepEqual(citation, {
+                        html: "(Doe, 2024)"
+                    });
+                    assert.deepEqual(items, [{
+                        key: "ITEMKEY",
+                        library: "user"
+                    }]);
+                    assert.deepEqual(options.existingFields, [{
+                        FieldId: "1",
+                        Value: "existing",
+                        Content: "text"
+                    }]);
+                    assert.equal(options.requestId, "req-1");
+
+                    return {
+                        Value: "ZOTERO_ITEM CSL_CITATION {\"citationID\":\"req-1\"}",
+                        Content: "(Doe, 2024)"
+                    };
                 }
             };
         }
@@ -127,8 +160,14 @@ test("insertCitation uses the hidden agent runtime to paste a formatted citation
     });
 
     assert.deepEqual(calls, [[
-        "PasteHtml",
-        ["(Doe, 2024)"]
+        "GetAllAddinFields",
+        []
+    ], [
+        "AddAddinField",
+        [{
+            Value: "ZOTERO_ITEM CSL_CITATION {\"citationID\":\"req-1\"}",
+            Content: "(Doe, 2024)"
+        }]
     ]]);
     assert.deepEqual(hostEvents[0], {
         type: "agent.response",

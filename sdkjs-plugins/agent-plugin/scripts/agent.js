@@ -220,16 +220,29 @@
                 return Promise.reject(createBridgeError("INSERT_CITATION_UNAVAILABLE", "Zotero citation executor is not available"));
             }
 
-            return createZoteroExecutor({})
-                .formatCitation(message.items || [], message.options || {})
-                .then(function(result) {
-                    return executeMethod("PasteHtml", [result.html]).then(function() {
+            return Promise.resolve().then(function() {
+                var executor = createZoteroExecutor({});
+
+                return Promise.all([
+                    executor.formatCitation(message.items || [], message.options || {}),
+                    executeMethod("GetAllAddinFields", [])
+                ]).then(function(results) {
+                    var result = results[0] || {};
+                    var existingFields = Array.isArray(results[1]) ? results[1] : [];
+                    var payload = executor.createCitationFieldPayload(result, message.items || [], {
+                        existingFields: existingFields,
+                        requestId: message.requestId,
+                        content: result.content || result.html
+                    });
+
+                    return executeMethod("AddAddinField", [payload]).then(function() {
                         return {
                             inserted: true,
                             html: result.html
                         };
                     });
                 });
+            });
         }
 
         function handleRequest(message) {
