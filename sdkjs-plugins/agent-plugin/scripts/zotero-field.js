@@ -75,18 +75,127 @@
         return citationItem;
     }
 
-    function createCitationItems(items) {
-        var citationItems = [];
+    function buildCitationItemUri(item, settings) {
+        var libraryId = item && item.libraryId ? String(item.libraryId) : "";
+        var key = item && (item.key || item.id || item.itemId || item.itemID) ? String(item.key || item.id || item.itemId || item.itemID) : "";
 
-        (Array.isArray(items) ? items : []).forEach(function(item) {
+        if (!key) {
+            return "";
+        }
+
+        if (item && item.library === "group") {
+            return "http://zotero.org/groups/" + libraryId + "/items/" + key;
+        }
+
+        return "http://zotero.org/users/" + String(settings && settings.userId ? settings.userId : "") + "/items/" + key;
+    }
+
+    function normalizeCitationItem(item, requestItem, settings) {
+        var citationItem = {};
+        var normalizedItem = item || {};
+        var request = requestItem || {};
+        var uri = "";
+
+        if (normalizedItem.id !== undefined) {
+            citationItem.id = normalizedItem.id;
+        } else if (request.key || request.id || request.itemId || request.itemID) {
+            citationItem.id = request.key || request.id || request.itemId || request.itemID;
+        }
+
+        if (normalizedItem.uris) {
+            citationItem.uris = Array.isArray(normalizedItem.uris)
+                ? normalizedItem.uris.map(function(value) {
+                    return String(value);
+                })
+                : [String(normalizedItem.uris)];
+        }
+
+        if (normalizedItem.uri) {
+            citationItem.uri = String(normalizedItem.uri);
+        }
+
+        if (!citationItem.uri) {
+            uri = buildCitationItemUri(request, settings);
+
+            if (uri) {
+                citationItem.uri = uri;
+            }
+        }
+
+        if (!citationItem.uris && citationItem.uri) {
+            citationItem.uris = [citationItem.uri];
+        }
+
+        if (normalizedItem.itemData) {
+            citationItem.itemData = normalizedItem.itemData;
+        } else if (request.itemData) {
+            citationItem.itemData = request.itemData;
+        }
+
+        if (normalizedItem.prefix !== undefined) {
+            citationItem.prefix = String(normalizedItem.prefix);
+        } else if (request.prefix !== undefined) {
+            citationItem.prefix = String(request.prefix);
+        }
+
+        if (normalizedItem.suffix !== undefined) {
+            citationItem.suffix = String(normalizedItem.suffix);
+        } else if (request.suffix !== undefined) {
+            citationItem.suffix = String(request.suffix);
+        }
+
+        if (normalizedItem.locator !== undefined) {
+            citationItem.locator = normalizedItem.locator;
+        } else if (request.locator !== undefined) {
+            citationItem.locator = request.locator;
+        }
+
+        if (normalizedItem.label !== undefined) {
+            citationItem.label = String(normalizedItem.label);
+        } else if (request.label !== undefined) {
+            citationItem.label = String(request.label);
+        }
+
+        if (normalizedItem["suppress-author"] !== undefined) {
+            citationItem["suppress-author"] = !!normalizedItem["suppress-author"];
+        } else if (request["suppress-author"] !== undefined) {
+            citationItem["suppress-author"] = !!request["suppress-author"];
+        } else if (request.suppressAuthor !== undefined) {
+            citationItem["suppress-author"] = !!request.suppressAuthor;
+        }
+
+        return citationItem;
+    }
+
+    function createCitationItems(items, sourceCitationItems, settings) {
+        var normalizedCitationItems = [];
+        var sourceItems = Array.isArray(sourceCitationItems) ? sourceCitationItems : [];
+        var requestItems = Array.isArray(items) ? items : [];
+        var index;
+        var normalizedItem;
+
+        if (sourceItems.length > 0) {
+            for (index = 0; index < sourceItems.length; index += 1) {
+                normalizedItem = normalizeCitationItem(sourceItems[index], requestItems[index], settings);
+
+                if (normalizedItem) {
+                    normalizedCitationItems.push(normalizedItem);
+                }
+            }
+            return normalizedCitationItems;
+        }
+
+        requestItems.forEach(function(item) {
             var citationItem = createCitationItem(item);
 
             if (citationItem) {
-                citationItems.push(citationItem);
+                citationItem.uri = buildCitationItemUri(item, settings);
+                citationItem.uris = citationItem.uri ? [citationItem.uri] : citationItem.uris;
+                normalizedCitationItems.push(citationItem);
             }
         });
 
-        return citationItems;
+        return normalizedCitationItems;
     }
 
     function buildCitationFieldValue(citation) {
@@ -121,10 +230,44 @@
         }
     }
 
+    function normalizeAddinField(field) {
+        var citation;
+
+        if (!field) {
+            return null;
+        }
+
+        citation = parseCitationFieldValue(field.Value);
+        if (!citation) {
+            return null;
+        }
+
+        return {
+            FieldId: field.FieldId !== undefined ? String(field.FieldId) : undefined,
+            Value: normalizeString(field.Value),
+            Content: normalizeString(field.Content),
+            citation: citation
+        };
+    }
+
+    function normalizeAddinFields(fields) {
+        var normalizedFields = [];
+
+        (Array.isArray(fields) ? fields : []).forEach(function(field) {
+            var normalizedField = normalizeAddinField(field);
+
+            if (normalizedField) {
+                normalizedFields.push(normalizedField);
+            }
+        });
+
+        return normalizedFields;
+    }
+
     function createCitationFieldPayload(options) {
         var citation = options && options.citation ? options.citation : {};
         var items = options && options.items ? options.items : [];
-        var existingFields = Array.isArray(options && options.existingFields) ? options.existingFields : [];
+        var existingFields = normalizeAddinFields(options && options.existingFields);
         var content = normalizeString(
             options && options.content !== undefined
                 ? options.content
@@ -132,6 +275,7 @@
         );
         var citationObject = options && options.citationObject ? options.citationObject : null;
         var citationId = options && options.citationID ? String(options.citationID) : "";
+        var citationItems = createCitationItems(items, citation.citationItems, options && options.settings);
         var noteIndex = options && typeof options.noteIndex === "number"
             ? options.noteIndex
             : ((citation.properties && typeof citation.properties.noteIndex === "number")
@@ -140,20 +284,28 @@
 
         if (!citationObject) {
             citationObject = {
-                citationID: citationId || (options && options.requestId ? String(options.requestId) : "agent-citation-" + (existingFields.length + 1)),
+                citationID: citationId || citation.citationID || (options && options.requestId ? String(options.requestId) : "agent-citation-" + (existingFields.length + 1)),
                 properties: {
                     formattedCitation: content,
                     plainCitation: content,
                     noteIndex: noteIndex
                 },
-                citationItems: createCitationItems(items),
-                schema: CITATION_SCHEMA
+                citationItems: citationItems,
+                schema: citation.schema || CITATION_SCHEMA
             };
+        } else if (!citationObject.citationItems || !citationObject.citationItems.length) {
+            citationObject.citationItems = citationItems;
         }
 
         return {
+            addinField: {
+                Value: buildCitationFieldValue(citationObject),
+                Content: content
+            },
             Value: buildCitationFieldValue(citationObject),
-            Content: content
+            Content: content,
+            citation: citationObject,
+            existingFields: existingFields
         };
     }
 
@@ -162,6 +314,8 @@
         CITATION_SCHEMA: CITATION_SCHEMA,
         buildCitationFieldValue: buildCitationFieldValue,
         parseCitationFieldValue: parseCitationFieldValue,
+        normalizeAddinField: normalizeAddinField,
+        normalizeAddinFields: normalizeAddinFields,
         createCitationFieldPayload: createCitationFieldPayload
     };
 });

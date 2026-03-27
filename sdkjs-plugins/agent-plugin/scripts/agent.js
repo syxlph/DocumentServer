@@ -229,13 +229,17 @@
                 ]).then(function(results) {
                     var result = results[0] || {};
                     var existingFields = Array.isArray(results[1]) ? results[1] : [];
-                    var payload = executor.createCitationFieldPayload(result, message.items || [], {
+                    var payload = executor.createCitationFieldPayload({
+                        citation: result,
+                        items: message.items || [],
                         existingFields: existingFields,
                         requestId: message.requestId,
-                        content: result.content || result.html
+                        content: result.content || result.html,
+                        settings: result.settings || {},
+                        options: message.options || {}
                     });
 
-                    return executeMethod("AddAddinField", [payload]).then(function() {
+                    return executeMethod("AddAddinField", [payload.addinField]).then(function() {
                         return {
                             inserted: true,
                             html: result.html

@@ -41,6 +41,89 @@
         return "";
     }
 
+    function getItemData(entry) {
+        if (!entry) {
+            return null;
+        }
+
+        if (entry.data) {
+            return entry.data;
+        }
+
+        if (entry.itemData) {
+            return entry.itemData;
+        }
+
+        return entry;
+    }
+
+    function buildItemUri(settings, item) {
+        var libraryId = item && item.libraryId ? String(item.libraryId) : "";
+        var key = item && item.key ? String(item.key) : "";
+
+        if (!key) {
+            return "";
+        }
+
+        if (item && item.library === "group") {
+            return "http://zotero.org/groups/" + libraryId + "/items/" + key;
+        }
+
+        return "http://zotero.org/users/" + String(settings && settings.userId ? settings.userId : "") + "/items/" + key;
+    }
+
+    function buildCitationItem(entry, requestItem, settings) {
+        var itemData = getItemData(entry);
+        var uri = "";
+        var citationItem;
+
+        if (!entry) {
+            return null;
+        }
+
+        if (entry.uri) {
+            uri = String(entry.uri);
+        } else if (entry.links && entry.links.self && entry.links.self.href) {
+            uri = String(entry.links.self.href);
+        } else {
+            uri = buildItemUri(settings, requestItem);
+        }
+
+        citationItem = {
+            id: itemData && itemData.id !== undefined ? itemData.id : (entry.id !== undefined ? entry.id : requestItem.key),
+            uris: uri ? [uri] : [],
+            itemData: itemData
+        };
+
+        if (uri) {
+            citationItem.uri = uri;
+        }
+
+        if (requestItem.locator !== undefined) {
+            citationItem.locator = requestItem.locator;
+        }
+
+        if (requestItem.label !== undefined) {
+            citationItem.label = requestItem.label;
+        }
+
+        if (requestItem.prefix !== undefined) {
+            citationItem.prefix = requestItem.prefix;
+        }
+
+        if (requestItem.suffix !== undefined) {
+            citationItem.suffix = requestItem.suffix;
+        }
+
+        if (requestItem["suppress-author"] !== undefined) {
+            citationItem["suppress-author"] = !!requestItem["suppress-author"];
+        } else if (requestItem.suppressAuthor !== undefined) {
+            citationItem["suppress-author"] = !!requestItem.suppressAuthor;
+        }
+
+        return citationItem;
+    }
+
     function stripHtml(value) {
         return String(value || "").replace(/<[^>]+>/g, "");
     }
@@ -69,7 +152,7 @@
             var url = new URL(library + "/items", baseUrl);
 
             url.searchParams.set("format", "json");
-            url.searchParams.set("include", "citation");
+            url.searchParams.set("include", "data,citation");
             url.searchParams.set("style", options && options.style ? options.style : settings.styleId);
             url.searchParams.set("locale", options && options.locale ? options.locale : settings.locale);
             url.searchParams.set("itemKey", items.map(function(item) {
@@ -109,6 +192,9 @@
                 })
                 .then(function(payload) {
                     var citations = payload.map(extractCitation).filter(Boolean);
+                    var citationItems = payload.map(function(entry, index) {
+                        return buildCitationItem(entry, items[index] || {}, settings);
+                    }).filter(Boolean);
 
                     if (citations.length < 1) {
                         throw new Error("Zotero did not return a citation");
@@ -117,24 +203,30 @@
                     return {
                         html: citations.join("; "),
                         content: stripHtml(citations.join("; ")),
+                        citationItems: citationItems,
                         settings: settings
                     };
                 });
         }
 
-        function buildCitationFieldPayload(citation, items, payloadOptions) {
+        function buildCitationFieldPayload(citationOrOptions, items, payloadOptions) {
             if (typeof createCitationFieldPayload !== "function") {
                 throw new Error("Zotero citation field helper is not available");
             }
 
+            if (citationOrOptions && citationOrOptions.citation) {
+                return createCitationFieldPayload(citationOrOptions);
+            }
+
             return createCitationFieldPayload({
-                citation: citation,
+                citation: citationOrOptions,
                 items: items || [],
                 existingFields: payloadOptions && payloadOptions.existingFields,
                 requestId: payloadOptions && payloadOptions.requestId,
                 citationID: payloadOptions && payloadOptions.citationID,
                 noteIndex: payloadOptions && payloadOptions.noteIndex,
-                content: payloadOptions && payloadOptions.content
+                content: payloadOptions && payloadOptions.content,
+                settings: payloadOptions && payloadOptions.settings
             });
         }
 
@@ -147,12 +239,12 @@
 
     return {
         createZoteroExecutor: createZoteroExecutor,
-        createCitationFieldPayload: function(citation, items, options) {
+        createCitationFieldPayload: function(options) {
             var executor = createZoteroExecutor({
                 createCitationFieldPayload: fieldFactory && fieldFactory.createCitationFieldPayload
             });
 
-            return executor.createCitationFieldPayload(citation, items, options || {});
+            return executor.createCitationFieldPayload(options || {});
         }
     };
 });

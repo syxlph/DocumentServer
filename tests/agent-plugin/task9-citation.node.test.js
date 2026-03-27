@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 
 const pluginRoot = path.join(__dirname, "..", "..", "sdkjs-plugins", "agent-plugin");
+const fieldHelper = require(path.join(pluginRoot, "scripts", "zotero-field.js"));
 
 test("vendored Zotero executor reads shared Zotero auth/settings without depending on a patched native plugin", async () => {
     const {createZoteroExecutor} = require(path.join(pluginRoot, "scripts", "zotero-executor.js"));
@@ -71,6 +72,63 @@ test("vendored Zotero executor lets request-time locale override missing native 
     assert.equal(result.html, "(Doe, 2024)");
 });
 
+test("vendored Zotero executor fetches citation text and item data for native Zotero field payloads", async () => {
+    const {createZoteroExecutor} = require(path.join(pluginRoot, "scripts", "zotero-executor.js"));
+    const storage = new Map([
+        ["zoteroUserId", "42"],
+        ["zoteroApiKey", "secret-key"],
+        ["zoteroStyleId", "ieee"]
+    ]);
+    let requestUrl = null;
+    const executor = createZoteroExecutor({
+        storage: {
+            getItem(key) {
+                return storage.has(key) ? storage.get(key) : null;
+            }
+        },
+        fetch(url) {
+            requestUrl = new URL(url);
+
+            return Promise.resolve({
+                ok: true,
+                json() {
+                    return Promise.resolve([{
+                        key: "ITEMKEY",
+                        citation: "[2]",
+                        data: {
+                            id: 123,
+                            type: "article-journal",
+                            title: "Example Article"
+                        }
+                    }]);
+                }
+            });
+        }
+    });
+
+    const result = await executor.formatCitation([{
+        key: "ITEMKEY",
+        library: "user",
+        locator: "12"
+    }], {
+        style: "ieee"
+    });
+
+    assert.equal(requestUrl.searchParams.get("include"), "data,citation");
+    assert.equal(result.html, "[2]");
+    assert.deepEqual(result.citationItems, [{
+        id: 123,
+        uris: ["http://zotero.org/users/42/items/ITEMKEY"],
+        uri: "http://zotero.org/users/42/items/ITEMKEY",
+        itemData: {
+            id: 123,
+            type: "article-journal",
+            title: "Example Article"
+        },
+        locator: "12"
+    }]);
+});
+
 test("agent plugin page loads the Zotero executor before bootstrapping the bridge", async () => {
     const fs = require("node:fs");
     const html = fs.readFileSync(path.join(pluginRoot, "index.html"), "utf8");
@@ -91,6 +149,7 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
     const {createAgentPlugin} = require(path.join(pluginRoot, "scripts", "agent.js"));
     const hostEvents = [];
     const calls = [];
+    const nativeFieldValue = 'ADDIN ZOTERO_ITEM CSL_CITATION {"citationID":"older","properties":{"formattedCitation":"[1]","plainCitation":"[1]","noteIndex":0},"citationItems":[{"id":"OLDER","uris":["http://zotero.org/users/42/items/OLDER"],"uri":"http://zotero.org/users/42/items/OLDER","itemData":{"id":7,"type":"article-journal","title":"Older article"}}],"schema":"https://github.com/citation-style-language/schema/raw/master/csl-citation.json"}';
     const plugin = {
         guid: "asc.{7C0D3AE4-4932-4A1D-9E7A-6A7A2C7D98F1}",
         executeMethod(name, args, callback) {
@@ -99,8 +158,8 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
                 if (name === "GetAllAddinFields") {
                     callback([{
                         FieldId: "1",
-                        Value: "existing",
-                        Content: "text"
+                        Value: nativeFieldValue,
+                        Content: "[1]"
                     }]);
                 } else {
                     callback(true);
@@ -121,27 +180,101 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
                         library: "user"
                     }]);
                     return Promise.resolve({
-                        html: "(Doe, 2024)"
+                        html: "[2]",
+                        content: "[2]",
+                        citationItems: [{
+                            id: 123,
+                            uris: ["http://zotero.org/users/42/items/ITEMKEY"],
+                            uri: "http://zotero.org/users/42/items/ITEMKEY",
+                            itemData: {
+                                id: 123,
+                                type: "article-journal",
+                                title: "Example Article"
+                            }
+                        }],
+                        settings: {
+                            userId: "42"
+                        }
                     });
                 },
-                createCitationFieldPayload(citation, items, options) {
+                createCitationFieldPayload(payloadOptions) {
+                    const {citation, items, existingFields, requestId, content, settings} = payloadOptions;
+                    const normalizedExistingFields = fieldHelper.normalizeAddinFields(existingFields);
+
                     assert.deepEqual(citation, {
-                        html: "(Doe, 2024)"
+                        html: "[2]",
+                        content: "[2]",
+                        citationItems: [{
+                            id: 123,
+                            uris: ["http://zotero.org/users/42/items/ITEMKEY"],
+                            uri: "http://zotero.org/users/42/items/ITEMKEY",
+                            itemData: {
+                                id: 123,
+                                type: "article-journal",
+                                title: "Example Article"
+                            }
+                        }],
+                        settings: {
+                            userId: "42"
+                        }
                     });
                     assert.deepEqual(items, [{
                         key: "ITEMKEY",
                         library: "user"
                     }]);
-                    assert.deepEqual(options.existingFields, [{
+                    assert.deepEqual(normalizedExistingFields, [{
                         FieldId: "1",
-                        Value: "existing",
-                        Content: "text"
+                        Value: nativeFieldValue,
+                        Content: "[1]",
+                        citation: {
+                            citationID: "older",
+                            properties: {
+                                formattedCitation: "[1]",
+                                plainCitation: "[1]",
+                                noteIndex: 0
+                            },
+                            citationItems: [{
+                                id: "OLDER",
+                                uris: ["http://zotero.org/users/42/items/OLDER"],
+                                uri: "http://zotero.org/users/42/items/OLDER",
+                                itemData: {
+                                    id: 7,
+                                    type: "article-journal",
+                                    title: "Older article"
+                                }
+                            }],
+                            schema: "https://github.com/citation-style-language/schema/raw/master/csl-citation.json"
+                        }
                     }]);
-                    assert.equal(options.requestId, "req-1");
+                    assert.equal(requestId, "req-1");
+                    assert.equal(content, "[2]");
+                    assert.equal(settings.userId, "42");
 
                     return {
-                        Value: "ZOTERO_ITEM CSL_CITATION {\"citationID\":\"req-1\"}",
-                        Content: "(Doe, 2024)"
+                        addinField: {
+                            Value: fieldHelper.buildCitationFieldValue({
+                                citationID: "req-1",
+                                properties: {
+                                    formattedCitation: "[2]",
+                                    plainCitation: "[2]",
+                                    noteIndex: 0
+                                },
+                                citationItems: [{
+                                    id: 123,
+                                    uris: ["http://zotero.org/users/42/items/ITEMKEY"],
+                                    uri: "http://zotero.org/users/42/items/ITEMKEY",
+                                    itemData: {
+                                        id: 123,
+                                        type: "article-journal",
+                                        title: "Example Article"
+                                    }
+                                }],
+                                schema: "https://github.com/citation-style-language/schema/raw/master/csl-citation.json"
+                            }),
+                            Content: "[2]"
+                        },
+                        citation: citation,
+                        existingFields: normalizedExistingFields
                     };
                 }
             };
@@ -165,8 +298,26 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
     ], [
         "AddAddinField",
         [{
-            Value: "ZOTERO_ITEM CSL_CITATION {\"citationID\":\"req-1\"}",
-            Content: "(Doe, 2024)"
+            Value: fieldHelper.buildCitationFieldValue({
+                citationID: "req-1",
+                properties: {
+                    formattedCitation: "[2]",
+                    plainCitation: "[2]",
+                    noteIndex: 0
+                },
+                citationItems: [{
+                    id: 123,
+                    uris: ["http://zotero.org/users/42/items/ITEMKEY"],
+                    uri: "http://zotero.org/users/42/items/ITEMKEY",
+                    itemData: {
+                        id: 123,
+                        type: "article-journal",
+                        title: "Example Article"
+                    }
+                }],
+                schema: "https://github.com/citation-style-language/schema/raw/master/csl-citation.json"
+            }),
+            Content: "[2]"
         }]
     ]]);
     assert.deepEqual(hostEvents[0], {
@@ -177,7 +328,7 @@ test("insertCitation uses the hidden agent runtime to create a Zotero add-in fie
         success: true,
         result: {
             inserted: true,
-            html: "(Doe, 2024)"
+            html: "[2]"
         }
     });
 });
