@@ -44,6 +44,15 @@ test("agent plugin page avoids module-only bootstrap files and loads the classic
         assert.notEqual(scriptIndex, -1, `expected ${scriptPath} to be present`);
         assert.ok(scriptIndex < bootstrapIndex, `expected ${scriptPath} to load before bootstrap runs`);
     }
+
+    assert.equal(
+        fs.existsSync(path.join(pluginRoot, "scripts", "zotero-module-bootstrap.mjs")),
+        false
+    );
+    assert.equal(
+        fs.existsSync(path.join(pluginRoot, "scripts", "zotero-modern-loader.mjs")),
+        false
+    );
 });
 
 test("classic vendored loader exposes module-scoped Zotero symbols on a stable global", async () => {
