@@ -223,6 +223,20 @@
         stylesManager.setDesktopApiAvailable(false);
     }
 
+    function rememberLoadedStyle(styleManager, styleId, styleResult) {
+        if (!styleManager || !styleId || !styleResult || typeof styleResult.content !== "string" || styleResult.content.length < 1) {
+            return;
+        }
+
+        if (typeof styleManager.cached === "function" && styleManager.cached(styleId)) {
+            return;
+        }
+
+        if (styleManager._cache && typeof styleManager._cache === "object") {
+            styleManager._cache[styleId] = styleResult.content;
+        }
+    }
+
     function readAddinZoteroFields(documentService) {
         if (!documentService || typeof documentService.getAddinZoteroFields !== "function") {
             return Promise.resolve([]);
@@ -368,7 +382,11 @@
                 return Promise.all([
                     currentContext.styleManager.getStyle(effectiveStyleId, false),
                     currentContext.localesManager.loadLocale(effectiveLanguage)
-                ]).then(function() {
+                ]).then(function(results) {
+                    var styleResult = results[0];
+
+                    rememberLoadedStyle(currentContext.styleManager, effectiveStyleId, styleResult);
+
                     currentContext.citationService.setNotesStyle(effectiveNotesStyle);
                     currentContext.citationService.setStyleFormat(effectiveFormat);
 
