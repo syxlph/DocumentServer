@@ -15,8 +15,9 @@ function createStorage(seed) {
     };
 }
 
-test("native Zotero adapter maps agent citation items onto the vendored CitationService request shape", async () => {
-    const {createNativeCitationItems, NATIVE_STORAGE_KEYS} = require(adapterPath);
+test("native Zotero adapter maps agent citation items onto Zotero-native items without exporting the legacy storage-key surface", async () => {
+    const adapterModule = require(adapterPath);
+    const {createNativeCitationItems} = adapterModule;
     const mapped = createNativeCitationItems([{
         key: "ITEM-1",
         library: "user",
@@ -48,15 +49,7 @@ test("native Zotero adapter maps agent citation items onto the vendored Citation
             "suppress-author": true
         }
     });
-    assert.deepEqual(NATIVE_STORAGE_KEYS, {
-        userId: "zoteroUserId",
-        apiKey: "zoteroApiKey",
-        styleId: "zoteroStyleId",
-        language: "zoteroLang",
-        notesStyle: "zoteroNotesStyleId",
-        format: "zoteroFormatId",
-        containBibliography: "zoteroContainBibliography"
-    });
+    assert.equal(Object.prototype.hasOwnProperty.call(adapterModule, "NATIVE_STORAGE_KEYS"), false);
 });
 
 test("native Zotero adapter fails closed when the vendored runtime reports an unconfigured Zotero state", async () => {

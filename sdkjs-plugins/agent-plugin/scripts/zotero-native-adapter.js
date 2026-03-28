@@ -7,15 +7,7 @@
 
     root.OnlyOfficeAgentZoteroNativeAdapter = exported;
 })(typeof window !== "undefined" ? window : globalThis, function(root) {
-    var STORAGE_KEYS = {
-        userId: "zoteroUserId",
-        apiKey: "zoteroApiKey",
-        styleId: "zoteroStyleId",
-        language: "zoteroLang",
-        notesStyle: "zoteroNotesStyleId",
-        format: "zoteroFormatId",
-        containBibliography: "zoteroContainBibliography"
-    };
+    var USER_ID_STORAGE_KEY = "zoteroUserId";
     var CONFIGURE_ZOTERO_MESSAGE = "Zotero is not configured. Configure Zotero in the visual plugin first.";
 
     function getStorage(storage) {
@@ -199,7 +191,7 @@
                 }
 
                 nativeItems = createNativeCitationItems(message && message.items ? message.items : [], {
-                    userId: getStorageValue(storage, STORAGE_KEYS.userId)
+                    userId: getStorageValue(storage, USER_ID_STORAGE_KEY)
                 });
 
                 return readAddinZoteroFields(runtime).then(function(beforeFields) {
@@ -227,7 +219,6 @@
     }
 
     return {
-        NATIVE_STORAGE_KEYS: STORAGE_KEYS,
         CONFIGURE_ZOTERO_MESSAGE: CONFIGURE_ZOTERO_MESSAGE,
         createNativeCitationItems: createNativeCitationItems,
         createNativeZoteroAdapter: createNativeZoteroAdapter
