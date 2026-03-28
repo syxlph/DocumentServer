@@ -8,12 +8,19 @@ const pluginRoot = path.join(__dirname, "..", "..", "sdkjs-plugins", "agent-plug
 test("agent-plugin page preserves the vendored Zotero loader container required by the native runtime", () => {
     const html = fs.readFileSync(path.join(pluginRoot, "index.html"), "utf8");
 
-    assert.match(html, /id="libLoader"/);
+    assert.match(
+        html,
+        /document\.write\('<script type="module" src="vendor\/zotero\/dist\/bundle\.modern\.js"><\/script>'\)/
+    );
 });
 
 test("agent-plugin page keeps native Zotero document holders required for inline citation insertion", () => {
     const html = fs.readFileSync(path.join(pluginRoot, "index.html"), "utf8");
 
+    assert.match(
+        html,
+        /document\.write\('<script src="vendor\/zotero\/dist\/bundle\.es5\.js"><\/script>'\)/
+    );
     assert.match(html, /id="docsHolder"/);
     assert.match(html, /id="selectedHolder"/);
     assert.match(html, /id="styleSelectList"/);
@@ -23,6 +30,10 @@ test("agent-plugin page keeps native Zotero document holders required for inline
 test("agent-plugin page no longer depends on a custom vendored bootstrap layer", () => {
     const html = fs.readFileSync(path.join(pluginRoot, "index.html"), "utf8");
 
+    assert.doesNotMatch(
+        html,
+        /<script src="vendor\/zotero\/dist\/bundle\.modern\.js"><\/script>/
+    );
     assert.doesNotMatch(html, /scripts\/zotero-modern-loader\.js/);
     assert.doesNotMatch(html, /scripts\/zotero-bootstrap\.js/);
 });

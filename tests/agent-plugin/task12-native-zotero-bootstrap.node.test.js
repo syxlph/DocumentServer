@@ -12,7 +12,14 @@ function read(relativePath) {
 test("agent plugin page boots vendored Zotero directly from the agent-plugin subtree", () => {
     const html = read("index.html");
 
-    assert.match(html, /vendor\/zotero\/dist\/bundle\.modern\.js/);
+    assert.match(
+        html,
+        /document\.write\('<script type="module" src="vendor\/zotero\/dist\/bundle\.modern\.js"><\/script>'\)/
+    );
+    assert.doesNotMatch(
+        html,
+        /<script src="vendor\/zotero\/dist\/bundle\.modern\.js"><\/script>/
+    );
     assert.doesNotMatch(html, /sdkjs-plugins\/vendor\/zotero/);
     assert.doesNotMatch(html, /scripts\/zotero-modern-loader\.js/);
     assert.doesNotMatch(html, /scripts\/zotero-bootstrap\.js/);
@@ -33,7 +40,10 @@ test("agent plugin page keeps the full Zotero runtime scaffold intact", () => {
 test("agent plugin page avoids module-only and custom bootstrap indirection", () => {
     const html = read("index.html");
 
-    assert.doesNotMatch(html, /type="module"/);
+    assert.match(
+        html,
+        /document\.write\('<script src="vendor\/zotero\/dist\/bundle\.es5\.js"><\/script>'\)/
+    );
     assert.doesNotMatch(html, /zotero-module-bootstrap\.mjs/);
     assert.doesNotMatch(html, /zotero-modern-loader\.mjs/);
     assert.doesNotMatch(html, /zotero-modern-loader\.js/);
