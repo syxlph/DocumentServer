@@ -27,7 +27,13 @@
     <script src="https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js"></script>
     <script src="https://onlyoffice.github.io/sdkjs-plugins/v1/plugins-ui.js"></script>
     <script src="vendor/zotero/dist/citeproc_commonjs.js"></script>
-    <script src="vendor/zotero/dist/bundle.modern.js"></script>
+    <script>
+        if (typeof Promise === 'function' && typeof Promise.any === 'function') {
+            document.write('<script type="module" src="vendor/zotero/dist/bundle.modern.js"><\/script>');
+        } else {
+            document.write('<script src="vendor/zotero/dist/bundle.es5.js"><\/script>');
+        }
+    </script>
     <script src="scripts/zotero-native-adapter.js"></script>
     <script src="scripts/agent.js"></script>
 </head>
