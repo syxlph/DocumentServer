@@ -149,6 +149,73 @@ test("agent plugin does not eagerly bootstrap before the vendored Zotero runtime
     });
 });
 
+test("agent plugin late bootstrap during the first vendored init cycle still emits agent.ready exactly once", async () => {
+    await withFreshAgentGlobals({
+        parent: {
+            posted: [],
+            postMessage(payload) {
+                this.posted.push(JSON.parse(payload));
+            }
+        },
+        console: {
+            log() {}
+        }
+    }, async () => {
+        const runtime = {
+            isConfigured() {
+                return true;
+            },
+            getAddinZoteroFields() {
+                return Promise.resolve([]);
+            },
+            insertCitation() {
+                return Promise.resolve();
+            }
+        };
+        const plugin = {
+            guid: "asc.{late-bootstrap-first-init}",
+            executeMethod(_name, _args, callback) {
+                if (callback) {
+                    callback(true);
+                }
+            }
+        };
+
+        globalThis.OnlyOfficeAgentZoteroRuntime = runtime;
+        globalThis.Asc = {
+            plugin: plugin
+        };
+
+        const agentModule = require(agentScriptPath);
+        let initCalls = 0;
+        plugin.init = function() {
+            initCalls += 1;
+            globalThis.OnlyOfficeAgentPlugin.bootstrap(globalThis);
+            return "vendored-init-finished";
+        };
+
+        const result = plugin.init();
+        const readyEvents = globalThis.parent.posted.filter((entry) =>
+            entry.type === "onAgentPluginMessageCallback"
+            && entry.data
+            && entry.data.type === "agent.ready"
+        );
+
+        assert.equal(result, "vendored-init-finished");
+        assert.equal(initCalls, 1);
+        assert.equal(readyEvents.length, 1);
+        assert.deepEqual(readyEvents[0], {
+            type: "onAgentPluginMessageCallback",
+            data: {
+                type: "agent.ready",
+                guid: "asc.{late-bootstrap-first-init}",
+                version: "1.0.0"
+            }
+        });
+        assert.ok(plugin.__agentBridge);
+    });
+});
+
 test("agent plugin bootstrap emits the dedicated host callback lane", async () => {
     const {bootstrap} = require(agentScriptPath);
     const posted = [];

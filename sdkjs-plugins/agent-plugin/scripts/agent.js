@@ -307,6 +307,10 @@
 
         return {
             init: function() {
+                if (state.ready) {
+                    return true;
+                }
+
                 state.ready = true;
                 postHostEvent({
                     type: "agent.ready",
@@ -442,6 +446,7 @@
         };
 
         composePluginHandlers(plugin, preservedHandlers, bridgeHandlers);
+        bridge.init();
 
         return bridge;
     }
