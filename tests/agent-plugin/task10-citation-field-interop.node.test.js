@@ -63,81 +63,79 @@ test("browser native context fails closed when Zotero has not been configured ye
                 return storage.has(key) ? storage.get(key) : null;
             }
         },
-        OnlyOfficeAgentVendoredZotero: {
-            ZoteroSdk: function() {
-                this.hasSettings = function() {
-                    calls.push(["hasSettings"]);
-                    return false;
-                };
-                this.setIsOnlineAvailable = function(value) {
-                    calls.push(["setIsOnlineAvailable", value]);
-                };
-            },
-            LocalesManager: function() {
-                this.getLastUsedLanguage = function() {
-                    return "en-US";
-                };
-                this.loadLocale = function(language) {
-                    calls.push(["loadLocale", language]);
-                    return Promise.resolve();
-                };
-                this.setRestApiAvailable = function(value) {
-                    calls.push(["locales.setRestApiAvailable", value]);
-                };
-                this.setDesktopApiAvailable = function(value) {
-                    calls.push(["locales.setDesktopApiAvailable", value]);
-                };
-            },
-            CslStylesManager: function() {
-                this.getLastUsedStyleIdOrDefault = function() {
-                    return "apa";
-                };
-                this.getLastUsedNotesStyle = function() {
-                    return "footnotes";
-                };
-                this.getLastUsedFormat = function() {
-                    return "numeric";
-                };
-                this.getStyle = function(styleId) {
-                    calls.push(["getStyle", styleId]);
-                    return Promise.resolve();
-                };
-                this.setRestApiAvailable = function(value) {
-                    calls.push(["styles.setRestApiAvailable", value]);
-                };
-                this.setDesktopApiAvailable = function(value) {
-                    calls.push(["styles.setDesktopApiAvailable", value]);
-                };
-            },
-            CitationService: function() {
-                this.setNotesStyle = function(notesStyle) {
-                    calls.push(["setNotesStyle", notesStyle]);
-                };
-                this.setStyleFormat = function(format) {
-                    calls.push(["setStyleFormat", format]);
-                };
-                this.updateCslItems = function() {
-                    return Promise.resolve();
-                };
-                this.insertSelectedCitations = function() {
-                    return Promise.resolve();
-                };
-                this.citationDocService = {
-                    getAddinZoteroFields() {
-                        return Promise.resolve([]);
-                    }
-                };
-            },
-            ZoteroApiChecker: {
-                checkStatus() {
-                    calls.push(["checkStatus"]);
-                    return Promise.resolve({
-                        online: false,
-                        hasKey: false,
-                        desktop: true,
-                        hasPermission: true
-                    });
+        ZoteroSdk: function() {
+            this.hasSettings = function() {
+                calls.push(["hasSettings"]);
+                return false;
+            };
+            this.setIsOnlineAvailable = function(value) {
+                calls.push(["setIsOnlineAvailable", value]);
+            };
+        },
+        LocalesManager: function() {
+            this.getLastUsedLanguage = function() {
+                return "en-US";
+            };
+            this.loadLocale = function(language) {
+                calls.push(["loadLocale", language]);
+                return Promise.resolve();
+            };
+            this.setRestApiAvailable = function(value) {
+                calls.push(["locales.setRestApiAvailable", value]);
+            };
+            this.setDesktopApiAvailable = function(value) {
+                calls.push(["locales.setDesktopApiAvailable", value]);
+            };
+        },
+        CslStylesManager: function() {
+            this.getLastUsedStyleIdOrDefault = function() {
+                return "apa";
+            };
+            this.getLastUsedNotesStyle = function() {
+                return "footnotes";
+            };
+            this.getLastUsedFormat = function() {
+                return "numeric";
+            };
+            this.getStyle = function(styleId) {
+                calls.push(["getStyle", styleId]);
+                return Promise.resolve();
+            };
+            this.setRestApiAvailable = function(value) {
+                calls.push(["styles.setRestApiAvailable", value]);
+            };
+            this.setDesktopApiAvailable = function(value) {
+                calls.push(["styles.setDesktopApiAvailable", value]);
+            };
+        },
+        CitationService: function() {
+            this.setNotesStyle = function(notesStyle) {
+                calls.push(["setNotesStyle", notesStyle]);
+            };
+            this.setStyleFormat = function(format) {
+                calls.push(["setStyleFormat", format]);
+            };
+            this.updateCslItems = function() {
+                return Promise.resolve();
+            };
+            this.insertSelectedCitations = function() {
+                return Promise.resolve();
+            };
+            this.citationDocService = {
+                getAddinZoteroFields() {
+                    return Promise.resolve([]);
                 }
+            };
+        },
+        ZoteroApiChecker: {
+            checkStatus() {
+                calls.push(["checkStatus"]);
+                return Promise.resolve({
+                    online: false,
+                    hasKey: false,
+                    desktop: true,
+                    hasPermission: true
+                });
             }
         }
     };

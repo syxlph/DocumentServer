@@ -25,7 +25,6 @@
         "event_onContextMenuClick",
         "onExternalPluginMessage"
     ];
-    var VENDORED_SCOPE_KEY = "OnlyOfficeAgentVendoredZotero";
     var CONFIGURE_ZOTERO_MESSAGE = "Zotero is not configured. Configure Zotero in the visual plugin first.";
 
     function getStorage(storage) {
@@ -41,14 +40,6 @@
 
         value = storage.getItem(key);
         return value === undefined ? null : value;
-    }
-
-    function getVendoredScope(currentRoot) {
-        if (currentRoot && currentRoot[VENDORED_SCOPE_KEY]) {
-            return currentRoot[VENDORED_SCOPE_KEY];
-        }
-
-        return currentRoot;
     }
 
     function capturePluginHandlers(plugin) {
@@ -195,7 +186,6 @@
     }
 
     function ensureVendorGlobals(currentRoot) {
-        var vendoredScope = getVendoredScope(currentRoot);
         var requiredGlobals = [
             "ZoteroSdk",
             "LocalesManager",
@@ -204,12 +194,12 @@
         ];
 
         requiredGlobals.forEach(function(name) {
-            if (typeof vendoredScope[name] !== "function") {
+            if (!currentRoot || typeof currentRoot[name] !== "function") {
                 throw new Error("Vendored Zotero global is unavailable: " + name);
             }
         });
 
-        return vendoredScope;
+        return currentRoot;
     }
 
     function configureResourcePaths(localesManager, stylesManager) {
@@ -276,8 +266,7 @@
     }
 
     function resolveNativeAccess(currentRoot, sdk) {
-        var checker = getVendoredScope(currentRoot);
-        checker = checker && checker.ZoteroApiChecker;
+        var checker = currentRoot && currentRoot.ZoteroApiChecker;
         var hasSettings = sdk && typeof sdk.hasSettings === "function" && sdk.hasSettings();
 
         if (!hasSettings) {
@@ -468,7 +457,6 @@
 
     return {
         NATIVE_STORAGE_KEYS: STORAGE_KEYS,
-        VENDORED_SCOPE_KEY: VENDORED_SCOPE_KEY,
         CONFIGURE_ZOTERO_MESSAGE: CONFIGURE_ZOTERO_MESSAGE,
         capturePluginHandlers: capturePluginHandlers,
         composePluginHandlers: composePluginHandlers,

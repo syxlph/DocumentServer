@@ -96,18 +96,16 @@ test("native adapter reuses persisted Zotero formatting state instead of request
             zoteroFormatId: "author-date",
             zoteroContainBibliography: "true"
         }),
-        OnlyOfficeAgentVendoredZotero: {
-            ZoteroApiChecker: {
-                checkStatus: async () => ({online: true, hasKey: true})
-            },
-            ZoteroSdk: function ZoteroSdk() {
-                this.hasSettings = () => true;
-                this.setIsOnlineAvailable = () => {};
-            },
-            LocalesManager: FakeLocalesManager,
-            CslStylesManager: FakeStylesManager,
-            CitationService: FakeCitationService
-        }
+        ZoteroApiChecker: {
+            checkStatus: async () => ({online: true, hasKey: true})
+        },
+        ZoteroSdk: function ZoteroSdk() {
+            this.hasSettings = () => true;
+            this.setIsOnlineAvailable = () => {};
+        },
+        LocalesManager: FakeLocalesManager,
+        CslStylesManager: FakeStylesManager,
+        CitationService: FakeCitationService
     };
 
     const adapter = createNativeZoteroAdapter({
@@ -208,18 +206,16 @@ test("native context ignores request-scoped formatting overrides and refreshes p
             zoteroFormatId: "author-date",
             zoteroContainBibliography: "true"
         }),
-        OnlyOfficeAgentVendoredZotero: {
-            ZoteroApiChecker: {
-                checkStatus: async () => ({online: true, hasKey: true})
-            },
-            ZoteroSdk: function ZoteroSdk() {
-                this.hasSettings = () => true;
-                this.setIsOnlineAvailable = () => {};
-            },
-            LocalesManager: FakeLocalesManager,
-            CslStylesManager: FakeStylesManager,
-            CitationService: FakeCitationService
-        }
+        ZoteroApiChecker: {
+            checkStatus: async () => ({online: true, hasKey: true})
+        },
+        ZoteroSdk: function ZoteroSdk() {
+            this.hasSettings = () => true;
+            this.setIsOnlineAvailable = () => {};
+        },
+        LocalesManager: FakeLocalesManager,
+        CslStylesManager: FakeStylesManager,
+        CitationService: FakeCitationService
     };
 
     const context = createBrowserNativeContext({root, storage: root.localStorage});
