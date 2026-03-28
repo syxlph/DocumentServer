@@ -322,12 +322,17 @@
 
     function bootstrap(currentRoot) {
         var plugin = currentRoot.Asc && currentRoot.Asc.plugin;
+        var preservedHandlers;
+        var bridgeHandlers;
         var nativeAdapter;
 
         if (!plugin || plugin.__agentBridge) {
             return plugin && plugin.__agentBridge;
         }
 
+        preservedHandlers = nativeAdapterFactory && nativeAdapterFactory.capturePluginHandlers
+            ? nativeAdapterFactory.capturePluginHandlers(plugin)
+            : {};
         nativeAdapter = nativeAdapterFactory && nativeAdapterFactory.createNativeZoteroAdapter
             ? nativeAdapterFactory.createNativeZoteroAdapter({root: currentRoot})
             : null;
@@ -353,18 +358,28 @@
 
         plugin.__agentBridge = bridge;
 
-        plugin.init = function() {
-            return bridge.init();
+        bridgeHandlers = {
+            init: function() {
+                return bridge.init();
+            },
+            event_onContextMenuShow: function(info) {
+                return bridge.onContextMenuShow(info);
+            },
+            event_onContextMenuClick: function(itemId) {
+                return bridge.onContextMenuClick(itemId);
+            },
+            onExternalPluginMessage: function(message) {
+                return bridge.onExternalPluginMessage(message);
+            }
         };
-        plugin.event_onContextMenuShow = function(info) {
-            return bridge.onContextMenuShow(info);
-        };
-        plugin.event_onContextMenuClick = function(itemId) {
-            return bridge.onContextMenuClick(itemId);
-        };
-        plugin.onExternalPluginMessage = function(message) {
-            return bridge.onExternalPluginMessage(message);
-        };
+
+        if (nativeAdapterFactory && nativeAdapterFactory.composePluginHandlers) {
+            nativeAdapterFactory.composePluginHandlers(plugin, preservedHandlers, bridgeHandlers);
+        } else {
+            Object.keys(bridgeHandlers).forEach(function(name) {
+                plugin[name] = bridgeHandlers[name];
+            });
+        }
 
         return bridge;
     }
