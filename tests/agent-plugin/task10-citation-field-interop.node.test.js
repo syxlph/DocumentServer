@@ -48,7 +48,7 @@ test("native Zotero adapter maps agent citation items onto the vendored Citation
     });
 });
 
-test("browser native context reads vendored desktop auth helpers from the modern bootstrap seam without requiring API credentials", async () => {
+test("browser native context fails closed when Zotero has not been configured yet", async () => {
     const {createBrowserNativeContext} = require(path.join(pluginRoot, "scripts", "zotero-native-adapter.js"));
     const calls = [];
     const storage = new Map([
@@ -146,19 +146,13 @@ test("browser native context reads vendored desktop auth helpers from the modern
         storage: root.localStorage
     });
 
-    const result = await context.ensureReady({});
-
-    assert.deepEqual(result, {
-        userId: null,
-        apiKey: null,
-        styleId: "apa",
-        language: "en-US",
-        notesStyle: "footnotes",
-        format: "numeric"
-    });
-    assert.equal(calls.some((entry) => entry[0] === "setIsOnlineAvailable" && entry[1] === false), true);
-    assert.equal(calls.some((entry) => entry[0] === "getStyle" && entry[1] === "apa"), true);
-    assert.equal(calls.some((entry) => entry[0] === "loadLocale" && entry[1] === "en-US"), true);
+    await assert.rejects(
+        context.ensureReady({}),
+        /configure Zotero in the visual plugin first/i
+    );
+    assert.equal(calls.some((entry) => entry[0] === "checkStatus"), false);
+    assert.equal(calls.some((entry) => entry[0] === "getStyle"), false);
+    assert.equal(calls.some((entry) => entry[0] === "loadLocale"), false);
 });
 
 test("native Zotero adapter preloads style and locale, synchronizes native fields, and returns the final inserted citation text after refresh", async () => {
