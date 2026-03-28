@@ -16,16 +16,8 @@
         format: "zoteroFormatId",
         containBibliography: "zoteroContainBibliography"
     };
-    var HANDLER_NAMES = [
-        "init",
-        "button",
-        "onThemeChanged",
-        "onTranslate",
-        "event_onContextMenuShow",
-        "event_onContextMenuClick",
-        "onExternalPluginMessage"
-    ];
     var VENDORED_SCOPE_KEY = "OnlyOfficeAgentVendoredZotero";
+    var CONFIGURE_ZOTERO_MESSAGE = "Zotero is not configured. Configure Zotero in the visual plugin first.";
 
     function getStorage(storage) {
         return storage || (root && root.localStorage) || null;
@@ -48,48 +40,6 @@
         }
 
         return currentRoot;
-    }
-
-    function capturePluginHandlers(plugin) {
-        var preserved = {};
-
-        HANDLER_NAMES.forEach(function(name) {
-            if (plugin && typeof plugin[name] === "function") {
-                preserved[name] = plugin[name];
-            }
-        });
-
-        return preserved;
-    }
-
-    function composePluginHandlers(plugin, preserved, additions) {
-        var names = {};
-
-        Object.keys(preserved || {}).forEach(function(name) {
-            names[name] = true;
-        });
-        Object.keys(additions || {}).forEach(function(name) {
-            names[name] = true;
-        });
-
-        Object.keys(names).forEach(function(name) {
-            var original = preserved && preserved[name];
-            var added = additions && additions[name];
-
-            if (typeof original === "function" && typeof added === "function") {
-                plugin[name] = function() {
-                    var originalResult = original.apply(plugin, arguments);
-                    var addedResult = added.apply(plugin, arguments);
-
-                    return addedResult !== undefined ? addedResult : originalResult;
-                };
-                return;
-            }
-
-            plugin[name] = typeof added === "function" ? added : original;
-        });
-
-        return plugin;
     }
 
     function normalizeLibraryId(value) {
@@ -279,6 +229,10 @@
         checker = checker && checker.ZoteroApiChecker;
         var hasSettings = sdk && typeof sdk.hasSettings === "function" && sdk.hasSettings();
 
+        if (!hasSettings) {
+            return Promise.reject(new Error(CONFIGURE_ZOTERO_MESSAGE));
+        }
+
         if (checker && typeof checker.checkStatus === "function") {
             return Promise.resolve(checker.checkStatus(sdk)).then(function(status) {
                 if (status && status.online && status.hasKey) {
@@ -291,31 +245,23 @@
                     return status;
                 }
 
-                if (hasSettings) {
-                    sdk.setIsOnlineAvailable(true);
-                    return status || {
-                        online: true,
-                        hasKey: true,
-                        desktop: false,
-                        hasPermission: false
-                    };
-                }
-
-                throw new Error("Zotero access is unavailable. Configure Zotero Online or enable local Zotero access.");
+                sdk.setIsOnlineAvailable(true);
+                return status || {
+                    online: true,
+                    hasKey: true,
+                    desktop: false,
+                    hasPermission: false
+                };
             });
         }
 
-        if (hasSettings) {
-            sdk.setIsOnlineAvailable(true);
-            return Promise.resolve({
-                online: true,
-                hasKey: true,
-                desktop: false,
-                hasPermission: false
-            });
-        }
-
-        return Promise.reject(new Error("Zotero access is unavailable. Configure Zotero Online or enable local Zotero access."));
+        sdk.setIsOnlineAvailable(true);
+        return Promise.resolve({
+            online: true,
+            hasKey: true,
+            desktop: false,
+            hasPermission: false
+        });
     }
 
     function createBrowserNativeContext(options) {
@@ -472,8 +418,7 @@
     return {
         NATIVE_STORAGE_KEYS: STORAGE_KEYS,
         VENDORED_SCOPE_KEY: VENDORED_SCOPE_KEY,
-        capturePluginHandlers: capturePluginHandlers,
-        composePluginHandlers: composePluginHandlers,
+        CONFIGURE_ZOTERO_MESSAGE: CONFIGURE_ZOTERO_MESSAGE,
         createBrowserNativeContext: createBrowserNativeContext,
         createNativeCitationItems: createNativeCitationItems,
         createNativeZoteroAdapter: createNativeZoteroAdapter
