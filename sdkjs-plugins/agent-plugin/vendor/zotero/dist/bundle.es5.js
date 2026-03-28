@@ -15305,6 +15305,7 @@
             var loginPage = new LoginPage(router, sdk);
             settings = new SettingsPage(router, displayNoneClass);
             citationService = new CitationService(settings.getLocalesManager(), settings.getStyleManager(), sdk);
+            exposeOnlyOfficeAgentZoteroRuntime();
             var isInit = false;
             addEventListeners();
             loginPage.init().onOpen(function() {
@@ -15321,11 +15322,37 @@
                 });
             });
             window.Asc.plugin.onTranslate = applyTranslations;
+            if (window.OnlyOfficeAgentPlugin && typeof window.OnlyOfficeAgentPlugin.bootstrap === "function") {
+                window.OnlyOfficeAgentPlugin.bootstrap(window);
+            }
         };
         function loadGroups() {
             return sdk.getUserGroups().then(function(groups) {
                 searchFilter.addGroups(groups);
             });
+        }
+        function exposeOnlyOfficeAgentZoteroRuntime() {
+            window.OnlyOfficeAgentZoteroRuntime = {
+                isConfigured: function isConfigured() {
+                    return sdk.hasSettings();
+                },
+                getAddinZoteroFields: function getAddinZoteroFields() {
+                    return citationService.citationDocService.getAddinZoteroFields();
+                },
+                insertCitation: function insertCitation(items) {
+                    if (!settings.getLastUsedStyleId()) {
+                        throw new Error(translate("Style is not selected"));
+                    }
+                    if (!settings.getLocale()) {
+                        throw new Error(translate("Language is not selected"));
+                    }
+                    return citationService.updateCslItems(false, false).then(function() {
+                        return citationService.insertSelectedCitations(items);
+                    }).then(function() {
+                        return citationService.updateCslItems(true, false);
+                    });
+                }
+            };
         }
         function addEventListeners() {
             selectCitation.subscribe(checkSelected);

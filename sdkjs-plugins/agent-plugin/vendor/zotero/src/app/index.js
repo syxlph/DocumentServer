@@ -145,6 +145,7 @@ import "../styles.css";
             settings.getStyleManager(),
             sdk
         );
+        exposeOnlyOfficeAgentZoteroRuntime();
         let isInit = false;
 
         addEventListeners();
@@ -169,6 +170,13 @@ import "../styles.css";
             });
 
         window.Asc.plugin.onTranslate = applyTranslations;
+
+        if (
+            window.OnlyOfficeAgentPlugin &&
+            typeof window.OnlyOfficeAgentPlugin.bootstrap === "function"
+        ) {
+            window.OnlyOfficeAgentPlugin.bootstrap(window);
+        }
     };
 
     /** @returns {Promise<void>} */
@@ -178,6 +186,33 @@ import "../styles.css";
             .then(function (/** @type {Array<UserGroupInfo>} */ groups) {
                 searchFilter.addGroups(groups);
             });
+    }
+
+    function exposeOnlyOfficeAgentZoteroRuntime() {
+        window.OnlyOfficeAgentZoteroRuntime = {
+            isConfigured() {
+                return sdk.hasSettings();
+            },
+            getAddinZoteroFields() {
+                return citationService.citationDocService.getAddinZoteroFields();
+            },
+            insertCitation(items) {
+                if (!settings.getLastUsedStyleId()) {
+                    throw new Error(translate("Style is not selected"));
+                }
+                if (!settings.getLocale()) {
+                    throw new Error(translate("Language is not selected"));
+                }
+                return citationService
+                    .updateCslItems(false, false)
+                    .then(function () {
+                        return citationService.insertSelectedCitations(items);
+                    })
+                    .then(function () {
+                        return citationService.updateCslItems(true, false);
+                    });
+            },
+        };
     }
 
     function addEventListeners() {
