@@ -14,11 +14,11 @@ test("literal startup keeps the vendored Zotero bundle inside agent-plugin", () 
 
     assert.match(
         html,
-        /document\.write\('<script type="module" src="vendor\/zotero\/dist\/bundle\.modern\.js"><\/script>'\)/
+        /document\.write\(\s*'<script type="module" src="vendor\/zotero\/dist\/bundle\.modern\.js"><\\\/script>'\s*\)/s
     );
     assert.match(
         html,
-        /document\.write\('<script src="vendor\/zotero\/dist\/bundle\.es5\.js"><\/script>'\)/
+        /document\.write\(\s*'<script src="vendor\/zotero\/dist\/bundle\.es5\.js"><\\\/script>'\s*\)/s
     );
     assert.doesNotMatch(html, /sdkjs-plugins\/vendor\/zotero/);
 });
@@ -28,7 +28,7 @@ test("agent plugin startup follows the vendored Zotero page instead of a hand-ro
 
     assert.doesNotMatch(
         html,
-        /<script src="vendor\/zotero\/dist\/bundle\.modern\.js"><\/script>/
+        /<script\b[^>]*\bsrc="vendor\/zotero\/dist\/bundle\.modern\.js"[^>]*><\/script>/
     );
     assert.doesNotMatch(html, /zotero-modern-loader/);
     assert.doesNotMatch(html, /zotero-bootstrap/);

@@ -14,11 +14,11 @@ test("agent plugin page boots vendored Zotero directly from the agent-plugin sub
 
     assert.match(
         html,
-        /document\.write\('<script type="module" src="vendor\/zotero\/dist\/bundle\.modern\.js"><\/script>'\)/
+        /document\.write\(\s*'<script type="module" src="vendor\/zotero\/dist\/bundle\.modern\.js"><\\\/script>'\s*\)/s
     );
     assert.doesNotMatch(
         html,
-        /<script src="vendor\/zotero\/dist\/bundle\.modern\.js"><\/script>/
+        /<script\b[^>]*\bsrc="vendor\/zotero\/dist\/bundle\.modern\.js"[^>]*><\/script>/
     );
     assert.doesNotMatch(html, /sdkjs-plugins\/vendor\/zotero/);
     assert.doesNotMatch(html, /scripts\/zotero-modern-loader\.js/);
@@ -42,7 +42,7 @@ test("agent plugin page avoids module-only and custom bootstrap indirection", ()
 
     assert.match(
         html,
-        /document\.write\('<script src="vendor\/zotero\/dist\/bundle\.es5\.js"><\/script>'\)/
+        /document\.write\(\s*'<script src="vendor\/zotero\/dist\/bundle\.es5\.js"><\\\/script>'\s*\)/s
     );
     assert.doesNotMatch(html, /zotero-module-bootstrap\.mjs/);
     assert.doesNotMatch(html, /zotero-modern-loader\.mjs/);
