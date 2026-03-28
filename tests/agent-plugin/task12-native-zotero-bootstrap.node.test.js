@@ -7,6 +7,10 @@ const pluginRoot = path.join(__dirname, "..", "..", "sdkjs-plugins", "agent-plug
 test("agent plugin page loads vendored Zotero in the same top-level page before the adapter and bridge", async () => {
     const html = fs.readFileSync(path.join(pluginRoot, "index.html"), "utf8");
 
+    assert.match(html, /id="mainState"/);
+    assert.match(html, /id="settingsState"/);
+    assert.match(html, /id="libLoader"/);
+    assert.match(html, /plugins-ui\.js/);
     assert.match(html, /vendor\/zotero\/dist\/styles\.css/);
     assert.match(html, /vendor\/zotero\/dist\/citeproc_commonjs\.js/);
     assert.match(html, /scripts\/zotero-modern-loader\.js/);
