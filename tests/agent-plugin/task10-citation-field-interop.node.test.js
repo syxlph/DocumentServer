@@ -3,9 +3,20 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 
 const pluginRoot = path.join(__dirname, "..", "..", "sdkjs-plugins", "agent-plugin");
+const adapterPath = path.join(pluginRoot, "scripts", "zotero-native-adapter.js");
+
+function createStorage(seed) {
+    const entries = new Map(Object.entries(seed || {}));
+
+    return {
+        getItem(key) {
+            return entries.has(key) ? entries.get(key) : null;
+        }
+    };
+}
 
 test("native Zotero adapter maps agent citation items onto the vendored CitationService request shape", async () => {
-    const {createNativeCitationItems, NATIVE_STORAGE_KEYS} = require(path.join(pluginRoot, "scripts", "zotero-native-adapter.js"));
+    const {createNativeCitationItems, NATIVE_STORAGE_KEYS} = require(adapterPath);
     const mapped = createNativeCitationItems([{
         key: "ITEM-1",
         library: "user",
@@ -48,160 +59,88 @@ test("native Zotero adapter maps agent citation items onto the vendored Citation
     });
 });
 
-test("browser native context fails closed when Zotero has not been configured yet", async () => {
-    const {createBrowserNativeContext} = require(path.join(pluginRoot, "scripts", "zotero-native-adapter.js"));
+test("native Zotero adapter fails closed when the vendored runtime reports an unconfigured Zotero state", async () => {
+    const {CONFIGURE_ZOTERO_MESSAGE, createNativeZoteroAdapter} = require(adapterPath);
     const calls = [];
-    const storage = new Map([
-        ["zoteroStyleId", "apa"],
-        ["zoteroLang", "en-US"],
-        ["zoteroNotesStyleId", "footnotes"],
-        ["zoteroFormatId", "numeric"]
-    ]);
     const root = {
-        localStorage: {
-            getItem(key) {
-                return storage.has(key) ? storage.get(key) : null;
-            }
-        },
-        ZoteroSdk: function() {
-            this.hasSettings = function() {
-                calls.push(["hasSettings"]);
+        localStorage: createStorage({}),
+        OnlyOfficeAgentZoteroRuntime: {
+            isConfigured() {
+                calls.push("isConfigured");
                 return false;
-            };
-            this.setIsOnlineAvailable = function(value) {
-                calls.push(["setIsOnlineAvailable", value]);
-            };
-        },
-        LocalesManager: function() {
-            this.getLastUsedLanguage = function() {
-                return "en-US";
-            };
-            this.loadLocale = function(language) {
-                calls.push(["loadLocale", language]);
+            },
+            getAddinZoteroFields() {
+                calls.push("getAddinZoteroFields");
+                return Promise.resolve([]);
+            },
+            insertCitation() {
+                calls.push("insertCitation");
                 return Promise.resolve();
-            };
-            this.setRestApiAvailable = function(value) {
-                calls.push(["locales.setRestApiAvailable", value]);
-            };
-            this.setDesktopApiAvailable = function(value) {
-                calls.push(["locales.setDesktopApiAvailable", value]);
-            };
-        },
-        CslStylesManager: function() {
-            this.getLastUsedStyleIdOrDefault = function() {
-                return "apa";
-            };
-            this.getLastUsedNotesStyle = function() {
-                return "footnotes";
-            };
-            this.getLastUsedFormat = function() {
-                return "numeric";
-            };
-            this.getStyle = function(styleId) {
-                calls.push(["getStyle", styleId]);
-                return Promise.resolve();
-            };
-            this.setRestApiAvailable = function(value) {
-                calls.push(["styles.setRestApiAvailable", value]);
-            };
-            this.setDesktopApiAvailable = function(value) {
-                calls.push(["styles.setDesktopApiAvailable", value]);
-            };
-        },
-        CitationService: function() {
-            this.setNotesStyle = function(notesStyle) {
-                calls.push(["setNotesStyle", notesStyle]);
-            };
-            this.setStyleFormat = function(format) {
-                calls.push(["setStyleFormat", format]);
-            };
-            this.updateCslItems = function() {
-                return Promise.resolve();
-            };
-            this.insertSelectedCitations = function() {
-                return Promise.resolve();
-            };
-            this.citationDocService = {
-                getAddinZoteroFields() {
-                    return Promise.resolve([]);
-                }
-            };
-        },
-        ZoteroApiChecker: {
-            checkStatus() {
-                calls.push(["checkStatus"]);
-                return Promise.resolve({
-                    online: false,
-                    hasKey: false,
-                    desktop: true,
-                    hasPermission: true
-                });
             }
         }
     };
-    const context = createBrowserNativeContext({
+    const adapter = createNativeZoteroAdapter({
         root,
         storage: root.localStorage
     });
 
     await assert.rejects(
-        context.ensureReady({}),
-        /configure Zotero in the visual plugin first/i
+        adapter.insertCitation({
+            requestId: "req-not-configured",
+            items: [{
+                key: "ITEM-1",
+                library: "user"
+            }]
+        }),
+        (error) => {
+            assert.equal(error.code, "ZOTERO_NOT_CONFIGURED");
+            assert.equal(error.message, CONFIGURE_ZOTERO_MESSAGE);
+            assert.deepEqual(error.details, {});
+            return true;
+        }
     );
-    assert.equal(calls.some((entry) => entry[0] === "checkStatus"), false);
-    assert.equal(calls.some((entry) => entry[0] === "getStyle"), false);
-    assert.equal(calls.some((entry) => entry[0] === "loadLocale"), false);
+    assert.deepEqual(calls, ["isConfigured"]);
 });
 
-test("native Zotero adapter preloads style and locale, synchronizes native fields, and returns the final inserted citation text after refresh", async () => {
-    const {createNativeZoteroAdapter} = require(path.join(pluginRoot, "scripts", "zotero-native-adapter.js"));
+test("native Zotero adapter diffs Zotero document fields around vendored runtime insertion and returns the inserted field content", async () => {
+    const {createNativeZoteroAdapter} = require(adapterPath);
     const calls = [];
-    const storage = new Map([
-        ["zoteroUserId", "42"],
-        ["zoteroApiKey", "secret-key"],
-        ["zoteroStyleId", "ieee"],
-        ["zoteroLang", "fr-FR"],
-        ["zoteroNotesStyleId", "footnotes"],
-        ["zoteroFormatId", "note"]
-    ]);
+    const runtimeFields = [[{
+        FieldId: "field-0",
+        Value: "ITEM-0",
+        Content: "[1]"
+    }], [{
+        FieldId: "field-0",
+        Value: "ITEM-0",
+        Content: "[1]"
+    }, {
+        FieldId: "field-1",
+        Value: "ITEM-1",
+        Content: "[2]"
+    }]];
     const nativeAdapter = createNativeZoteroAdapter({
         root: {
-            localStorage: {
-                getItem(key) {
-                    return storage.has(key) ? storage.get(key) : null;
-                }
-            }
-        },
-        createNativeContext() {
-            return Promise.resolve({
-                ensureReady() {
-                    calls.push(["ensureReady"]);
-                    return Promise.resolve({
-                        userId: "42"
-                    });
+            localStorage: createStorage({
+                zoteroUserId: "42"
+            }),
+            OnlyOfficeAgentZoteroRuntime: {
+                isConfigured() {
+                    calls.push(["isConfigured"]);
+                    return true;
                 },
-                updateDocumentState(updateAll, insertBibliography) {
-                    calls.push(["updateDocumentState", updateAll, insertBibliography]);
-                    return Promise.resolve();
+                getAddinZoteroFields() {
+                    calls.push(["getAddinZoteroFields"]);
+                    return Promise.resolve(runtimeFields.shift());
                 },
                 insertCitation(nativeItems) {
                     calls.push(["insertCitation", nativeItems]);
-                    return Promise.resolve({
-                        inserted: true,
-                        fieldId: "field-1",
-                        html: "stale [1]"
-                    });
-                },
-                resolveInsertedCitation(result) {
-                    calls.push(["resolveInsertedCitation", result]);
-                    return Promise.resolve({
-                        inserted: true,
-                        fieldId: "field-1",
-                        html: "final [2]"
-                    });
+                    return Promise.resolve();
                 }
-            });
-        }
+            }
+        },
+        storage: createStorage({
+            zoteroUserId: "42"
+        })
     });
 
     const result = await nativeAdapter.insertCitation({
@@ -215,11 +154,9 @@ test("native Zotero adapter preloads style and locale, synchronizes native field
     });
 
     assert.deepEqual(calls, [[
-        "ensureReady"
+        "isConfigured"
     ], [
-        "updateDocumentState",
-        false,
-        false
+        "getAddinZoteroFields"
     ], [
         "insertCitation",
         {
@@ -231,20 +168,9 @@ test("native Zotero adapter preloads style and locale, synchronizes native field
             }
         }
     ], [
-        "updateDocumentState",
-        true,
-        false
-    ], [
-        "resolveInsertedCitation",
-        {
-            inserted: true,
-            fieldId: "field-1",
-            html: "stale [1]"
-        }
+        "getAddinZoteroFields"
     ]]);
-    assert.deepEqual(result, {
-        inserted: true,
-        fieldId: "field-1",
-        html: "final [2]"
-    });
+    assert.equal(result.inserted, true);
+    assert.equal(result.fieldId, "field-1");
+    assert.equal(result.html, "[2]");
 });

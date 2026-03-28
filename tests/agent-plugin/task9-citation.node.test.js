@@ -30,9 +30,6 @@ test("insertCitation delegates through the native Zotero adapter and keeps the a
     const agent = createAgentPlugin({
         plugin,
         nativeZoteroAdapter: nativeAdapter,
-        createZoteroExecutor() {
-            throw new Error("legacy Zotero executor should not be constructed");
-        },
         postHostEvent(payload) {
             hostEvents.push(payload);
         }
@@ -79,6 +76,7 @@ test("insertCitation delegates through the native Zotero adapter and keeps the a
             html: "[2]"
         }
     });
+    assert.equal(adapterCalls.length, 1);
     assert.match(findEvent(hostEvents, "agent.log").summary, /insertCitation 1 item/);
 });
 

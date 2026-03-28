@@ -3,6 +3,54 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 
 const pluginRoot = path.join(__dirname, "..", "..", "sdkjs-plugins", "agent-plugin");
+const agentScriptPath = path.join(pluginRoot, "scripts", "agent.js");
+const adapterScriptPath = path.join(pluginRoot, "scripts", "zotero-native-adapter.js");
+
+function withFreshAgentGlobals(overrides, callback) {
+    const names = [
+        "Asc",
+        "OnlyOfficeAgentPlugin",
+        "OnlyOfficeAgentZoteroRuntime",
+        "parent",
+        "console"
+    ];
+    const descriptors = new Map();
+
+    names.forEach((name) => {
+        descriptors.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
+        if (Object.prototype.hasOwnProperty.call(overrides, name)) {
+            Object.defineProperty(globalThis, name, {
+                configurable: true,
+                writable: true,
+                value: overrides[name]
+            });
+            return;
+        }
+
+        delete globalThis[name];
+    });
+
+    delete require.cache[require.resolve(agentScriptPath)];
+    delete require.cache[require.resolve(adapterScriptPath)];
+
+    return Promise.resolve()
+        .then(callback)
+        .finally(() => {
+            delete require.cache[require.resolve(agentScriptPath)];
+            delete require.cache[require.resolve(adapterScriptPath)];
+
+            names.forEach((name) => {
+                const descriptor = descriptors.get(name);
+
+                if (descriptor) {
+                    Object.defineProperty(globalThis, name, descriptor);
+                    return;
+                }
+
+                delete globalThis[name];
+            });
+        });
+}
 
 test("agent plugin manifest declares the hidden word-only agent runtime", async () => {
     const config = require(path.join(pluginRoot, "config.json"));
@@ -15,7 +63,7 @@ test("agent plugin manifest declares the hidden word-only agent runtime", async 
 });
 
 test("agent plugin boots and exposes a real context-menu bridge item", async () => {
-    const {createAgentPlugin} = require(path.join(pluginRoot, "scripts", "agent.js"));
+    const {createAgentPlugin} = require(agentScriptPath);
     const calls = [];
     const hostEvents = [];
     const plugin = {
@@ -60,8 +108,49 @@ test("agent plugin boots and exposes a real context-menu bridge item", async () 
     });
 });
 
+test("agent plugin does not eagerly bootstrap before the vendored Zotero runtime seam exists", async () => {
+    await withFreshAgentGlobals({
+        Asc: {
+            plugin: {
+                guid: "asc.{bootstrap-race-fix}",
+                init() {
+                    return "original-init";
+                },
+                executeMethod() {}
+            }
+        },
+        console: {
+            log() {}
+        }
+    }, async () => {
+        const agentModule = require(agentScriptPath);
+        const originalInit = globalThis.Asc.plugin.init;
+
+        assert.equal(globalThis.Asc.plugin.__agentBridge, undefined);
+        assert.equal(globalThis.Asc.plugin.init, originalInit);
+
+        globalThis.OnlyOfficeAgentZoteroRuntime = {
+            isConfigured() {
+                return true;
+            },
+            getAddinZoteroFields() {
+                return Promise.resolve([]);
+            },
+            insertCitation() {
+                return Promise.resolve();
+            }
+        };
+
+        const bridge = agentModule.bootstrap(globalThis);
+
+        assert.ok(bridge);
+        assert.equal(globalThis.Asc.plugin.__agentBridge, bridge);
+        assert.notEqual(globalThis.Asc.plugin.init, originalInit);
+    });
+});
+
 test("agent plugin bootstrap emits the dedicated host callback lane", async () => {
-    const {bootstrap} = require(path.join(pluginRoot, "scripts", "agent.js"));
+    const {bootstrap} = require(agentScriptPath);
     const posted = [];
     const root = {
         Asc: {
@@ -72,6 +161,17 @@ test("agent plugin bootstrap emits the dedicated host callback lane", async () =
                         callback(true);
                     }
                 }
+            }
+        },
+        OnlyOfficeAgentZoteroRuntime: {
+            isConfigured() {
+                return true;
+            },
+            getAddinZoteroFields() {
+                return Promise.resolve([]);
+            },
+            insertCitation() {
+                return Promise.resolve();
             }
         },
         parent: {
@@ -98,7 +198,7 @@ test("agent plugin bootstrap emits the dedicated host callback lane", async () =
 });
 
 test("agent plugin responses stay on the dedicated callback lane", async () => {
-    const {createAgentPlugin} = require(path.join(pluginRoot, "scripts", "agent.js"));
+    const {createAgentPlugin} = require(agentScriptPath);
     const posted = [];
     const plugin = {
         guid: "asc.{00000000-0000-0000-0000-000000000003}",

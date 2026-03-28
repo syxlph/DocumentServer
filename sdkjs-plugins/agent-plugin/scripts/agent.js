@@ -7,18 +7,80 @@
 
     root.OnlyOfficeAgentPlugin = exported;
 
-    if (root.Asc && root.Asc.plugin) {
+    if (root.Asc && root.Asc.plugin && root.OnlyOfficeAgentZoteroRuntime) {
         exported.bootstrap(root);
     }
 })(typeof window !== "undefined" ? window : globalThis, function() {
     var VERSION = "1.0.0";
     var MENU_ITEM_ID = "agent-add-citation";
+    var HANDLER_NAMES = [
+        "init",
+        "button",
+        "onThemeChanged",
+        "onTranslate",
+        "event_onContextMenuShow",
+        "event_onContextMenuClick",
+        "onExternalPluginMessage"
+    ];
     var CALL_COMMAND_EXECUTION_FAILED = "CALL_COMMAND_EXECUTION_FAILED";
     var CALL_COMMAND_SERIALIZATION_FAILED = "CALL_COMMAND_SERIALIZATION_FAILED";
     var CALL_COMMAND_RESPONSE_PARSE_FAILED = "CALL_COMMAND_RESPONSE_PARSE_FAILED";
     var nativeAdapterFactory = typeof require === "function"
         ? require("./zotero-native-adapter.js")
         : (typeof window !== "undefined" ? window.OnlyOfficeAgentZoteroNativeAdapter : null);
+
+    function capturePluginHandlers(plugin) {
+        var preserved = {};
+
+        HANDLER_NAMES.forEach(function(name) {
+            if (plugin && typeof plugin[name] === "function") {
+                preserved[name] = plugin[name];
+            }
+        });
+
+        return preserved;
+    }
+
+    function composePluginHandlers(plugin, preserved, additions) {
+        var names = {};
+
+        Object.keys(preserved || {}).forEach(function(name) {
+            names[name] = true;
+        });
+        Object.keys(additions || {}).forEach(function(name) {
+            names[name] = true;
+        });
+
+        Object.keys(names).forEach(function(name) {
+            var original = preserved && preserved[name];
+            var added = additions && additions[name];
+
+            if (typeof original === "function" && typeof added === "function") {
+                plugin[name] = function() {
+                    var originalResult = original.apply(plugin, arguments);
+                    var addedResult = added.apply(plugin, arguments);
+
+                    return addedResult !== undefined ? addedResult : originalResult;
+                };
+                return;
+            }
+
+            plugin[name] = typeof added === "function" ? added : original;
+        });
+
+        return plugin;
+    }
+
+    function hasVendoredRuntime(currentRoot) {
+        var runtime = currentRoot && currentRoot.OnlyOfficeAgentZoteroRuntime;
+
+        return !!(
+            runtime
+            && typeof runtime.isConfigured === "function"
+            && typeof runtime.getAddinZoteroFields === "function"
+            && typeof runtime.insertCitation === "function"
+        );
+    }
 
     function createBridgeError(code, message, details) {
         return {
@@ -326,13 +388,19 @@
         var bridgeHandlers;
         var nativeAdapter;
 
-        if (!plugin || plugin.__agentBridge) {
+        if (!plugin) {
+            return null;
+        }
+
+        if (plugin.__agentBridge) {
+            return plugin.__agentBridge;
+        }
+
+        if (!hasVendoredRuntime(currentRoot)) {
             return plugin && plugin.__agentBridge;
         }
 
-        preservedHandlers = nativeAdapterFactory && nativeAdapterFactory.capturePluginHandlers
-            ? nativeAdapterFactory.capturePluginHandlers(plugin)
-            : {};
+        preservedHandlers = capturePluginHandlers(plugin);
         nativeAdapter = nativeAdapterFactory && nativeAdapterFactory.createNativeZoteroAdapter
             ? nativeAdapterFactory.createNativeZoteroAdapter({root: currentRoot})
             : null;
@@ -373,13 +441,7 @@
             }
         };
 
-        if (nativeAdapterFactory && nativeAdapterFactory.composePluginHandlers) {
-            nativeAdapterFactory.composePluginHandlers(plugin, preservedHandlers, bridgeHandlers);
-        } else {
-            Object.keys(bridgeHandlers).forEach(function(name) {
-                plugin[name] = bridgeHandlers[name];
-            });
-        }
+        composePluginHandlers(plugin, preservedHandlers, bridgeHandlers);
 
         return bridge;
     }
