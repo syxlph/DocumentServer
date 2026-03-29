@@ -128,7 +128,9 @@
 
         return new Function(
             "return function() {" +
-                "var Asc = typeof Asc !== 'undefined' ? Asc : {};" +
+                "var __agentRoot = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this);" +
+                "var Asc = __agentRoot.Asc || {};" +
+                "__agentRoot.Asc = Asc;" +
                 "Asc.scope = Asc.scope || {};" +
                 "Asc.scope.__agentPayload = " + payloadLiteral + ";" +
                 "var __agentResult;" +

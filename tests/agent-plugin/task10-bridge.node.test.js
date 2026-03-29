@@ -102,6 +102,59 @@ test("callCommand passthrough serializes payloads and parses JSON responses", as
     assert.match(findEvent(hostEvents, "agent.log").summary, /callCommand/);
 });
 
+test("callCommand payload is visible through window.Asc scope", async () => {
+    const previousWindow = global.window;
+    global.window = {};
+
+    try {
+        const hostEvents = [];
+        const plugin = {
+            guid: "asc.{agent-bridge}",
+            callCommand(command, close, recalculate, callback) {
+                const serialized = command();
+                callback(serialized);
+            }
+        };
+        const agent = createAgentPlugin({
+            plugin,
+            postHostEvent(payload) {
+                hostEvents.push(payload);
+            }
+        });
+
+        const handled = await agent.onExternalPluginMessage({
+            type: "agent.request",
+            target: "agent",
+            requestId: "req-window-asc-payload",
+            kind: "callCommand",
+            code: "return { seenType: window.Asc && window.Asc.scope && window.Asc.scope.__agentPayload && window.Asc.scope.__agentPayload.type, seenProbe: window.Asc && window.Asc.scope && window.Asc.scope.__agentPayload && window.Asc.scope.__agentPayload.probe };",
+            args: {
+                type: "read_report_structure",
+                probe: 1
+            }
+        });
+
+        assert.equal(handled, true);
+        assert.deepEqual(findEvent(hostEvents, "agent.response"), {
+            type: "agent.response",
+            target: "agent",
+            requestId: "req-window-asc-payload",
+            kind: "callCommand",
+            success: true,
+            result: {
+                seenType: "read_report_structure",
+                seenProbe: 1
+            }
+        });
+    } finally {
+        if (previousWindow === undefined) {
+            delete global.window;
+        } else {
+            global.window = previousWindow;
+        }
+    }
+});
+
 test("callCommand parse failures are surfaced as structured bridge errors", async () => {
     const hostEvents = [];
     const plugin = {
